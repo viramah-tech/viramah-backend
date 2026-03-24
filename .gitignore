@@ -3,6 +3,7 @@ node_modules
 dist
 coverage
 *.log
+*.pem
 
 # Optional: Ignore IDE-specific files
 .vscode/
