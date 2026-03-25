@@ -19,8 +19,8 @@ router.post(
   '/initiate',
   [
     body('amount')
-      .isFloat({ min: 1 })
-      .withMessage('Amount must be greater than 0'),
+      .isFloat({ min: 0 })
+      .withMessage('Amount is required'),
     body('paymentMethod')
       .trim()
       .notEmpty()

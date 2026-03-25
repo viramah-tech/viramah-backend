@@ -5,7 +5,9 @@ const validate = (req, res, next) => {
   const errors = validationResult(req);
 
   if (!errors.isEmpty()) {
-    return error(res, 'Validation failed', 400, errors.array());
+    const errorArr = errors.array();
+    const message = errorArr[0].msg || 'Validation failed';
+    return error(res, message, 400, errorArr);
   }
 
   next();

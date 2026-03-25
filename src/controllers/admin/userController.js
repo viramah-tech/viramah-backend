@@ -1,4 +1,5 @@
 const userService = require('../../services/userService');
+const RoomType = require('../../models/RoomType');
 const { success, error } = require('../../utils/apiResponse');
 const { emitToAdmins, emitToUser } = require('../../services/socketService');
 
@@ -94,11 +95,17 @@ const updateOnboardingStatus = async (req, res, next) => {
 const updateRoom = async (req, res, next) => {
   try {
     const { roomNumber, roomType } = req.body;
-    const validRoomTypes = ['VIRAMAH Nexus', 'VIRAMAH Axis', 'VIRAMAH Collective', 'VIRAMAH Axis+'];
-    if (!validRoomTypes.includes(roomType)) {
-      return error(res, `Invalid room type. Must be one of: ${validRoomTypes.join(', ')}`, 400);
+    let roomTypeId = null;
+    
+    if (roomType) {
+      const roomTypeObj = await RoomType.findOne({ name: roomType, isActive: true });
+      if (!roomTypeObj) {
+        return error(res, 'Invalid room type', 400);
+      }
+      roomTypeId = roomTypeObj._id;
     }
-    const user = await userService.updateUser(req.params.id, { roomNumber, roomType });
+    
+    const user = await userService.updateUser(req.params.id, { roomNumber, roomTypeId });
     emitToUser(user._id.toString(), 'user:updated', user);
     emitToAdmins('user:updated', user);
     return success(res, user, 'Room assignment updated successfully');

@@ -92,20 +92,15 @@ router.patch(
 // PATCH /api/public/onboarding/step-3  (Room selection)
 router.patch(
   '/step-3',
-  [
-    body('roomId').trim().notEmpty().withMessage('Room selection is required'),
-  ],
-  validate,
   saveStep3
 );
 
-// PATCH /api/public/onboarding/step-4  (Preferences)
+// PATCH /api/public/onboarding/step-4  (Personal Details)
 router.patch(
   '/step-4',
   [
-    body('diet').trim().notEmpty().withMessage('Diet preference is required'),
-    body('sleepSchedule').trim().notEmpty().withMessage('Sleep schedule is required'),
-    body('noise').trim().notEmpty().withMessage('Noise preference is required'),
+    body('gender').trim().notEmpty().withMessage('Gender is required'),
+    body('address').trim().notEmpty().withMessage('Address is required'),
   ],
   validate,
   saveStep4

@@ -1,7 +1,7 @@
 const Payment = require('../../models/Payment');
 const Transaction = require('../../models/Transaction');
 const User = require('../../models/User');
-const Room = require('../../models/Room');
+const RoomType = require('../../models/RoomType');
 const { success, error } = require('../../utils/apiResponse');
 const { emitToAdmins, emitToUser } = require('../../services/socketService');
 
@@ -20,21 +20,24 @@ const initiatePayment = async (req, res, next) => {
   try {
     const { amount, paymentMethod, description, transactionId, receiptUrl } = req.body;
 
-    const user = await User.findById(req.user._id).populate('selectedRoom');
+    const user = await User.findById(req.user._id);
     if (!user) return error(res, 'User not found', 404);
 
-    // Validate amount against backend room pricing (prevent frontend manipulation)
-    if (user.selectedRoom) {
-      const roomPrice = user.selectedRoom.pricePerMonth || 0;
+    // Validate and compute expected amount from backend room pricing
+    let expectedAmount = amount; // default to what the client sent
+    if (user.roomTypeId) {
+      const roomTypeObj = await RoomType.findById(user.roomTypeId);
+      // Support both flat fields (discountedPrice/basePrice) and nested pricing object
+      const roomPrice = roomTypeObj
+        ? (roomTypeObj.pricing?.discounted ?? roomTypeObj.discountedPrice ?? roomTypeObj.basePrice ?? 0)
+        : 0;
       // Calculate expected add-on cost from messPackage
       let expectedAddOns = 0;
       if (user.messPackage === 'full-board') expectedAddOns += ADD_ON_PRICES.lunch;
-      // Transport is optional — allow the amount to be roomPrice + any combination of add-ons
-      const minExpected = roomPrice;
-      const maxExpected = roomPrice + ADD_ON_PRICES.transport + ADD_ON_PRICES.lunch;
-
-      if (amount < minExpected || amount > maxExpected) {
-        return error(res, `Invalid payment amount. Expected between ₹${minExpected} and ₹${maxExpected}`, 400);
+      // If frontend sends 0 or a wildly different amount, use backend-computed amount
+      if (roomPrice > 0 && (amount === 0 || amount < roomPrice * 0.5)) {
+        expectedAmount = roomPrice + expectedAddOns;
+        console.warn(`[Payment] Amount corrected from ₹${amount} to ₹${expectedAmount} for user ${user._id}`);
       }
     }
 
@@ -48,7 +51,7 @@ const initiatePayment = async (req, res, next) => {
 
     const payment = await Payment.create({
       userId: user._id,
-      amount,
+      amount: expectedAmount,
       paymentMethod: paymentMethod || '',
       description: description || '',
       transactionId: transactionId || '',
@@ -61,7 +64,7 @@ const initiatePayment = async (req, res, next) => {
       paymentId: payment._id,
       userId: user._id,
       type: 'credit',
-      amount,
+      amount: expectedAmount,
       category: 'payment',
       description: description || `Payment ${payment.paymentId}`,
       status: 'pending',
@@ -83,6 +86,7 @@ const initiatePayment = async (req, res, next) => {
       201
     );
   } catch (err) {
+    console.error('[Payment Controller Error]', err.message, err.stack);
     next(err);
   }
 };

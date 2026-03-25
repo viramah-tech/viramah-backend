@@ -16,7 +16,7 @@ const login = async (userId, password, role) => {
   }
 
   // Find user by userId and include password field
-  const user = await User.findOne({ userId }).select('+password');
+  const user = await User.findOne({ userId }).select('+password').populate('roomTypeId', 'name');
 
   if (!user) {
     const err = new Error('Invalid credentials');
@@ -56,18 +56,21 @@ const login = async (userId, password, role) => {
   // Return user data without password
   const userData = user.toObject();
   delete userData.password;
+  userData.roomType = userData.roomTypeId ? userData.roomTypeId.name : '';
 
   return { token, user: userData };
 };
 
 const getMe = async (userId) => {
-  const user = await User.findById(userId);
+  const user = await User.findById(userId).populate('roomTypeId', 'name');
   if (!user) {
     const err = new Error('User not found');
     err.statusCode = 404;
     throw err;
   }
-  return user;
+  const userData = user.toObject();
+  userData.roomType = userData.roomTypeId ? userData.roomTypeId.name : '';
+  return userData;
 };
 
 module.exports = { login, getMe };

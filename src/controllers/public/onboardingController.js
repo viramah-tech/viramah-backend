@@ -1,5 +1,5 @@
 const User = require('../../models/User');
-const Room = require('../../models/Room');
+const RoomType = require('../../models/RoomType');
 const { success, error } = require('../../utils/apiResponse');
 const { emitToAdmins, emitToUser } = require('../../services/socketService');
 
@@ -9,7 +9,7 @@ const { emitToAdmins, emitToUser } = require('../../services/socketService');
  */
 const getStatus = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user._id).populate('selectedRoom');
+    const user = await User.findById(req.user._id).populate('roomTypeId', 'name displayName basePrice discountedPrice');
     if (!user) return error(res, 'User not found', 404);
 
     return success(res, {
@@ -21,11 +21,12 @@ const getStatus = async (req, res, next) => {
       documents: user.documents,
       emergencyContact: user.emergencyContact,
       parentDocuments: user.parentDocuments,
-      selectedRoom: user.selectedRoom,
+      roomTypeId: user.roomTypeId ? user.roomTypeId._id : null,
+      selectedRoomType: user.roomTypeId ? user.roomTypeId.name : '', // for backward compat in frontend until updated
       roomNumber: user.roomNumber,
-      roomType: user.roomType,
       messPackage: user.messPackage,
-      preferences: user.preferences,
+      gender: user.gender,
+      address: user.address,
       paymentStatus: user.paymentStatus,
     }, 'Onboarding status fetched');
   } catch (err) {
@@ -120,78 +121,40 @@ const saveStep2 = async (req, res, next) => {
  * PATCH /api/public/onboarding/step-3
  * Select room and mess package
  */
-const HOLD_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
-
 const saveStep3 = async (req, res, next) => {
   try {
-    const { roomId, messPackage } = req.body;
+    const { roomTypeName, roomTypeId, messPackage } = req.body;
 
-    // Validate room exists and has availability
-    const room = await Room.findById(roomId);
-    if (!room) return error(res, 'Room not found', 404);
-
-    // Clean up expired holds before checking availability
-    const now = new Date();
-    room.holds = (room.holds || []).filter(h => h.holdUntil > now);
-    await room.save();
-
-    if (!room.isAvailable) return error(res, 'This room is no longer available', 400);
-
-    // Check if user previously had a different room selected — release hold
-    const currentUser = await User.findById(req.user._id);
-    if (currentUser.selectedRoom && currentUser.selectedRoom.toString() !== roomId) {
-      // Remove user's hold from previous room
-      await Room.findByIdAndUpdate(currentUser.selectedRoom, {
-        $pull: { holds: { userId: req.user._id } },
-      });
-      // Reset status if it was full and now has capacity
-      const prevRoom = await Room.findById(currentUser.selectedRoom);
-      if (prevRoom) {
-        prevRoom.holds = (prevRoom.holds || []).filter(h => h.holdUntil > now);
-        if (prevRoom.status === 'full' && prevRoom.isAvailable) {
-          prevRoom.status = 'available';
-        }
-        await prevRoom.save();
-      }
+    // Validate roomType exists and has availability
+    let roomTypeObj;
+    if (roomTypeId) {
+      roomTypeObj = await RoomType.findById(roomTypeId);
+    } else if (roomTypeName) {
+      roomTypeObj = await RoomType.findOne({ name: roomTypeName, isActive: true });
     }
+    
+    if (!roomTypeObj || !roomTypeObj.isActive) return error(res, 'Room type not found or inactive', 404);
 
-    // Remove any existing hold by this user on this room (re-selection)
-    room.holds = room.holds.filter(h => h.userId.toString() !== req.user._id.toString());
-
-    // Place a timed hold on the new room
-    room.holds.push({
-      userId: req.user._id,
-      holdUntil: new Date(Date.now() + HOLD_DURATION_MS),
-    });
-
-    // Update room status if effectively full
-    const effectiveOccupancy = room.currentOccupancy + room.holds.filter(h => h.holdUntil > now).length;
-    if (effectiveOccupancy >= room.capacity) {
-      room.status = 'full';
-    }
-    await room.save();
+    if (roomTypeObj.availableSeats <= 0) return error(res, 'No vacant beds available for this room type', 400);
 
     const user = await User.findByIdAndUpdate(
       req.user._id,
       {
-        selectedRoom: room._id,
-        roomNumber: room.roomNumber,
-        roomType: room.roomType,
+        roomTypeId: roomTypeObj._id,
         messPackage: messPackage || '',
         onboardingStatus: 'in-progress',
       },
       { new: true, runValidators: true }
-    ).populate('selectedRoom');
+    );
 
     if (!user) return error(res, 'User not found', 404);
 
     return success(res, {
-      selectedRoom: user.selectedRoom,
-      roomNumber: user.roomNumber,
-      roomType: user.roomType,
+      roomTypeId: user.roomTypeId,
+      selectedRoomType: roomTypeObj.name,
       messPackage: user.messPackage,
       onboardingStatus: user.onboardingStatus,
-    }, 'Step 3 saved — room reserved for 24 hours');
+    }, 'Step 3 saved — room type selected');
   } catch (err) {
     next(err);
   }
@@ -203,14 +166,13 @@ const saveStep3 = async (req, res, next) => {
  */
 const saveStep4 = async (req, res, next) => {
   try {
-    const { diet, sleepSchedule, noise } = req.body;
+    const { gender, address } = req.body;
 
     const user = await User.findByIdAndUpdate(
       req.user._id,
       {
-        'preferences.diet': diet || '',
-        'preferences.sleepSchedule': sleepSchedule || '',
-        'preferences.noise': noise || '',
+        gender: gender || '',
+        address: address || '',
         onboardingStatus: 'in-progress',
       },
       { new: true, runValidators: true }
@@ -219,9 +181,10 @@ const saveStep4 = async (req, res, next) => {
     if (!user) return error(res, 'User not found', 404);
 
     return success(res, {
-      preferences: user.preferences,
+      gender: user.gender,
+      address: user.address,
       onboardingStatus: user.onboardingStatus,
-    }, 'Step 4 saved — preferences set');
+    }, 'Step 4 saved — personal details set');
   } catch (err) {
     next(err);
   }
@@ -233,8 +196,16 @@ const saveStep4 = async (req, res, next) => {
  */
 const confirmOnboarding = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user._id).populate('selectedRoom');
+    const user = await User.findById(req.user._id);
     if (!user) return error(res, 'User not found', 404);
+
+    // If already completed, return success without re-processing
+    if (user.onboardingStatus === 'completed') {
+      return success(res, {
+        onboardingStatus: 'completed',
+        message: 'Onboarding already completed',
+      }, 'Onboarding already completed');
+    }
 
     // Validate all steps are complete
     const missing = [];
@@ -242,8 +213,9 @@ const confirmOnboarding = async (req, res, next) => {
     if (!user.documents.addressProof) missing.push('Address proof');
     if (!user.documents.photo) missing.push('Photo');
     if (!user.emergencyContact.name || !user.emergencyContact.phone) missing.push('Emergency contact');
-    if (!user.selectedRoom) missing.push('Room selection');
-    if (!user.preferences.diet) missing.push('Diet preference');
+    if (!user.roomTypeId) missing.push('Room selection');
+    if (!user.gender) missing.push('Gender');
+    if (!user.address) missing.push('Address');
 
     if (missing.length > 0) {
       return error(
@@ -254,22 +226,14 @@ const confirmOnboarding = async (req, res, next) => {
     }
 
     user.onboardingStatus = 'completed';
-    await user.save();
+    await user.save(); // validation for gender/address triggers here
 
     // Convert temporary room hold into permanent occupancy
-    if (user.selectedRoom) {
-      const room = await Room.findById(user.selectedRoom._id || user.selectedRoom);
-      if (room) {
-        // Remove this user's hold
-        room.holds = (room.holds || []).filter(
-          h => h.userId.toString() !== user._id.toString()
-        );
-        // Increment actual occupancy
-        room.currentOccupancy += 1;
-        if (room.currentOccupancy >= room.capacity) {
-          room.status = 'full';
-        }
-        await room.save();
+    if (user.roomTypeId) {
+      const roomTypeObj = await RoomType.findById(user.roomTypeId);
+      if (roomTypeObj) {
+        roomTypeObj.bookedSeats += 1;
+        await roomTypeObj.save(); // this recalculates availableSeats
       }
     }
 
@@ -277,18 +241,23 @@ const confirmOnboarding = async (req, res, next) => {
     emitToAdmins('user:updated', user);
     emitToUser(user._id.toString(), 'user:updated', user);
 
+    const populatedUser = await User.findById(user._id).populate('roomTypeId', 'name');
+
     return success(res, {
-      onboardingStatus: user.onboardingStatus,
+      onboardingStatus: populatedUser.onboardingStatus,
       user: {
-        name: user.name,
-        email: user.email,
-        roomNumber: user.roomNumber,
-        roomType: user.roomType,
-        messPackage: user.messPackage,
-        selectedRoom: user.selectedRoom,
+        name: populatedUser.name,
+        email: populatedUser.email,
+        roomNumber: populatedUser.roomNumber,
+        roomTypeId: populatedUser.roomTypeId ? populatedUser.roomTypeId._id : null,
+        selectedRoomType: populatedUser.roomTypeId ? populatedUser.roomTypeId.name : '',
+        messPackage: populatedUser.messPackage,
+        gender: populatedUser.gender,
+        address: populatedUser.address,
       },
     }, 'Onboarding completed successfully');
   } catch (err) {
+    console.error('[Confirm Onboarding Error]', err.message, err.stack);
     next(err);
   }
 };
@@ -299,25 +268,8 @@ const confirmOnboarding = async (req, res, next) => {
  */
 const getAvailableRooms = async (req, res, next) => {
   try {
-    const { roomType, minPrice, maxPrice, sort } = req.query;
-
-    const filter = { status: { $ne: 'maintenance' } };
-
-    if (roomType) filter.roomType = roomType;
-    if (minPrice || maxPrice) {
-      filter.pricePerMonth = {};
-      if (minPrice) filter.pricePerMonth.$gte = Number(minPrice);
-      if (maxPrice) filter.pricePerMonth.$lte = Number(maxPrice);
-    }
-
-    let sortObj = { roomNumber: 1 };
-    if (sort === 'price-asc') sortObj = { pricePerMonth: 1 };
-    else if (sort === 'price-desc') sortObj = { pricePerMonth: -1 };
-    else if (sort === 'floor') sortObj = { floor: 1 };
-
-    const rooms = await Room.find(filter).sort(sortObj);
-
-    return success(res, { rooms }, 'Rooms fetched');
+    const roomTypes = await RoomType.find({ isActive: true });
+    return success(res, { rooms: roomTypes }, 'Rooms fetched');
   } catch (err) {
     next(err);
   }

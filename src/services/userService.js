@@ -13,12 +13,19 @@ const getUsers = async ({ page = 1, limit = 10, role, status, onboardingStatus }
     User.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(parseInt(limit, 10)),
+      .limit(parseInt(limit, 10))
+      .populate('roomTypeId', 'name'),
     User.countDocuments(query),
   ]);
 
+  const processedUsers = users.map(u => {
+    const obj = u.toObject ? u.toObject() : u;
+    obj.roomType = obj.roomTypeId ? obj.roomTypeId.name : '';
+    return obj;
+  });
+
   return {
-    users,
+    users: processedUsers,
     pagination: {
       page: parseInt(page, 10),
       limit: parseInt(limit, 10),
@@ -59,13 +66,15 @@ const getUserStats = async () => {
 };
 
 const getUserById = async (id) => {
-  const user = await User.findById(id);
+  const user = await User.findById(id).populate('roomTypeId', 'name');
   if (!user) {
     const err = new Error('User not found');
     err.statusCode = 404;
     throw err;
   }
-  return user;
+  const obj = user.toObject();
+  obj.roomType = obj.roomTypeId ? obj.roomTypeId.name : '';
+  return obj;
 };
 
 const createUser = async (data) => {
@@ -150,12 +159,19 @@ const searchUsers = async (query, { page = 1, limit = 10 }) => {
     User.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(parseInt(limit)),
+      .limit(parseInt(limit))
+      .populate('roomTypeId', 'name'),
     User.countDocuments(filter),
   ]);
 
+  const processedUsers = users.map(u => {
+    const obj = u.toObject ? u.toObject() : u;
+    obj.roomType = obj.roomTypeId ? obj.roomTypeId.name : '';
+    return obj;
+  });
+
   return {
-    users,
+    users: processedUsers,
     pagination: {
       page: parseInt(page),
       limit: parseInt(limit),
@@ -171,10 +187,16 @@ const exportUsers = async ({ role, status, onboardingStatus }) => {
   if (status) query.status = status;
   if (onboardingStatus) query.onboardingStatus = onboardingStatus;
 
-  return User.find(query)
+  const users = await User.find(query)
     .select('-password')
     .sort({ createdAt: -1 })
+    .populate('roomTypeId', 'name')
     .lean();
+
+  return users.map(u => {
+    u.roomType = u.roomTypeId ? u.roomTypeId.name : '';
+    return u;
+  });
 };
 
 module.exports = {

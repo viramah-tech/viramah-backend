@@ -42,6 +42,8 @@ const register = async (req, res, next) => {
 
     const userData = user.toObject();
     delete userData.password;
+    userData.roomType = '';
+    userData.selectedRoomType = '';
 
     return success(
       res,
@@ -65,7 +67,9 @@ const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email: email.toLowerCase(), role: 'user' }).select('+password');
+    const user = await User.findOne({ email: email.toLowerCase(), role: 'user' })
+      .select('+password')
+      .populate('roomTypeId', 'name');
 
     if (!user) {
       return error(res, 'Invalid email or password', 401);
@@ -96,6 +100,8 @@ const login = async (req, res, next) => {
 
     const userData = user.toObject();
     delete userData.password;
+    userData.roomType = userData.roomTypeId ? userData.roomTypeId.name : '';
+    userData.selectedRoomType = userData.roomTypeId ? userData.roomTypeId.name : '';
 
     return success(res, { token, user: userData }, 'Login successful');
   } catch (err) {
@@ -117,11 +123,14 @@ const logout = async (req, res) => {
  */
 const getMe = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user._id).populate('selectedRoom');
+    const user = await User.findById(req.user._id).populate('roomTypeId', 'name');
     if (!user) {
       return error(res, 'User not found', 404);
     }
-    return success(res, user, 'Profile fetched successfully');
+    const userData = user.toObject();
+    userData.roomType = userData.roomTypeId ? userData.roomTypeId.name : '';
+    userData.selectedRoomType = userData.roomTypeId ? userData.roomTypeId.name : '';
+    return success(res, userData, 'Profile fetched successfully');
   } catch (err) {
     next(err);
   }

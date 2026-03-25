@@ -44,18 +44,14 @@ const roomTypeSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    // Support nested pricing format
     pricing: {
-      original: {
-        type: Number,
-        required: [true, 'Original price is required'],
-        min: 0,
-      },
-      discounted: {
-        type: Number,
-        required: [true, 'Discounted price is required'],
-        min: 0,
-      },
+      original: { type: Number, min: 0 },
+      discounted: { type: Number, min: 0 },
     },
+    // Support flat pricing fields (legacy DB documents)
+    basePrice: { type: Number, min: 0 },
+    discountedPrice: { type: Number, min: 0 },
     features: {
       type: [String],
       default: [],
@@ -71,7 +67,9 @@ const roomTypeSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    collection: 'roomtypes',
+    collection: 'RoomTypes',
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
 

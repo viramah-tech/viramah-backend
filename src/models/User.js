@@ -15,42 +15,14 @@ const userSchema = new mongoose.Schema(
       required: [true, 'Name is required'],
       trim: true,
     },
-    email: {
-      type: String,
-      trim: true,
-      lowercase: true,
-      default: '',
-    },
-    phone: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    password: {
-      type: String,
-      required: [true, 'Password is required'],
-      minlength: 6,
-      select: false,
-    },
-    role: {
-      type: String,
-      enum: ['user', 'admin', 'accountant', 'manager', 'warden'],
-      default: 'user',
-    },
-    status: {
-      type: String,
-      enum: ['active', 'inactive', 'suspended'],
-      default: 'active',
-    },
-    lastLogin: {
-      type: Date,
-    },
+    email: { type: String, required: true, unique: true, trim: true, lowercase: true },
+    phone: { type: String, required: true, trim: true },
+    password: { type: String, required: true },
+    role: { type: String, enum: ['user', 'resident', 'admin', 'manager', 'accountant', 'warden'], default: 'user' },
+    status: { type: String, enum: ['active', 'inactive', 'suspended'], default: 'active' },
+    lastLogin: { type: Date },
     roomNumber: { type: String, trim: true, default: '' },
-    roomType: {
-      type: String,
-      enum: ['', 'VIRAMAH Nexus', 'VIRAMAH Axis', 'VIRAMAH Collective', 'VIRAMAH Axis+'],
-      default: '',
-    },
+    messPackage: { type: String, trim: true, default: '' },
     onboardingStatus: {
       type: String,
       enum: ['pending', 'in-progress', 'completed', 'rejected'],
@@ -84,21 +56,35 @@ const userSchema = new mongoose.Schema(
       idBack: { type: String, default: '' },
     },
     dateOfBirth: { type: Date },
-    gender: { type: String, enum: ['', 'male', 'female', 'other'], default: '' },
-    address: { type: String, default: '' },
-    preferences: {
-      diet: { type: String, enum: ['', 'vegetarian', 'non-vegetarian', 'vegan'], default: '' },
-      sleepSchedule: { type: String, enum: ['', 'early-bird', 'night-owl', 'flexible'], default: '' },
-      noise: { type: String, enum: ['', 'quiet', 'moderate', 'social'], default: '' },
-    },
-    messPackage: {
+    gender: {
       type: String,
-      enum: ['', 'full-board', 'partial-board', 'none'],
+      enum: {
+        values: ['', 'male', 'female', 'other'],
+        message: '{VALUE} is not a supported gender'
+      },
       default: '',
+      validate: {
+        validator: function(v) {
+          if (this.onboardingStatus === 'completed' && !v) return false;
+          return true;
+        },
+        message: 'Gender is required to complete onboarding'
+      }
     },
-    selectedRoom: {
+    address: {
+      type: String,
+      default: '',
+      validate: {
+        validator: function(v) {
+          if (this.onboardingStatus === 'completed' && (!v || v.trim() === '')) return false;
+          return true;
+        },
+        message: 'Address is required to complete onboarding'
+      }
+    },
+    roomTypeId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Room',
+      ref: 'RoomType',
     },
   },
   {

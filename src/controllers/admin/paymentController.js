@@ -1,6 +1,6 @@
 const paymentService = require('../../services/paymentService');
 const User = require('../../models/User');
-const Room = require('../../models/Room');
+const RoomType = require('../../models/RoomType');
 const { success, error } = require('../../utils/apiResponse');
 const { emitToAdmins, emitToUser } = require('../../services/socketService');
 
@@ -74,28 +74,20 @@ const rejectPayment = async (req, res, next) => {
 
     // Release room hold and decrement occupancy on rejection
     const rejectedUser = await User.findById(userId);
-    if (rejectedUser?.selectedRoom) {
-      const room = await Room.findById(rejectedUser.selectedRoom);
-      if (room) {
-        // Remove user's hold
-        room.holds = (room.holds || []).filter(
-          h => h.userId.toString() !== userId.toString()
-        );
-        // Decrement permanent occupancy if it was already converted
-        if (room.currentOccupancy > 0) {
-          room.currentOccupancy -= 1;
+    if (rejectedUser && rejectedUser.roomTypeId) {
+      const roomTypeObj = await RoomType.findById(rejectedUser.roomTypeId);
+      if (roomTypeObj) {
+        if (roomTypeObj.bookedSeats > 0) {
+          roomTypeObj.bookedSeats -= 1;
         }
-        if (room.currentOccupancy < room.capacity) {
-          room.status = 'available';
-        }
-        await room.save();
+        await roomTypeObj.save();
       }
-      // Clear user's room assignment
-      await User.findByIdAndUpdate(userId, {
-        selectedRoom: null,
-        roomNumber: '',
-        roomType: '',
-      });
+
+      // Reset user's room booking state
+      rejectedUser.roomTypeId = null;
+      rejectedUser.roomNumber = '';
+      rejectedUser.roomType = '';
+      await rejectedUser.save();
     }
 
     const updatedUser = await User.findById(userId);
