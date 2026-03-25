@@ -46,10 +46,22 @@ const paymentSchema = new mongoose.Schema(
     },
     transactionId: { type: String, trim: true, default: '' },
     receiptUrl: { type: String, trim: true, default: '' },
+    verificationNotes: { type: String, trim: true, default: '' },
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    reviewedAt: { type: Date },
   },
   {
     timestamps: true,
   }
+);
+
+// Unique index on transactionId — sparse so empty defaults don't collide
+paymentSchema.index(
+  { transactionId: 1 },
+  { unique: true, sparse: true, partialFilterExpression: { transactionId: { $ne: '' } } }
 );
 
 // Auto-generate paymentId before saving

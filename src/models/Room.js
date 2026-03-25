@@ -57,15 +57,29 @@ const roomSchema = new mongoose.Schema(
       enum: ['available', 'full', 'maintenance'],
       default: 'available',
     },
+    // Track temporary reservations that haven't completed payment
+    holds: [{
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      holdUntil: { type: Date, required: true },
+    }],
   },
   {
     timestamps: true,
   }
 );
 
-// Virtual: is room available?
+// Virtual: active (non-expired) holds count
+roomSchema.virtual('activeHoldsCount').get(function () {
+  if (!this.holds || this.holds.length === 0) return 0;
+  const now = new Date();
+  return this.holds.filter(h => h.holdUntil > now).length;
+});
+
+// Virtual: is room available? (accounts for active holds)
 roomSchema.virtual('isAvailable').get(function () {
-  return this.status === 'available' && this.currentOccupancy < this.capacity;
+  if (this.status !== 'available') return false;
+  const effectiveOccupancy = this.currentOccupancy + this.activeHoldsCount;
+  return effectiveOccupancy < this.capacity;
 });
 
 roomSchema.set('toJSON', { virtuals: true });

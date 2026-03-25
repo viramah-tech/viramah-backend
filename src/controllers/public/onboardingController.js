@@ -14,13 +14,19 @@ const getStatus = async (req, res, next) => {
 
     return success(res, {
       onboardingStatus: user.onboardingStatus,
+      name: user.name,
+      dateOfBirth: user.dateOfBirth,
+      idType: user.idType,
+      idNumber: user.idNumber,
       documents: user.documents,
       emergencyContact: user.emergencyContact,
+      parentDocuments: user.parentDocuments,
       selectedRoom: user.selectedRoom,
       roomNumber: user.roomNumber,
       roomType: user.roomType,
       messPackage: user.messPackage,
       preferences: user.preferences,
+      paymentStatus: user.paymentStatus,
     }, 'Onboarding status fetched');
   } catch (err) {
     next(err);
@@ -34,16 +40,24 @@ const getStatus = async (req, res, next) => {
  */
 const saveStep1 = async (req, res, next) => {
   try {
-    const { idProof, addressProof, photo } = req.body;
+    const { idProof, addressProof, photo, fullName, dateOfBirth, idType, idNumber } = req.body;
+
+    const updateFields = {
+      'documents.idProof': idProof || '',
+      'documents.addressProof': addressProof || '',
+      'documents.photo': photo || '',
+      onboardingStatus: 'in-progress',
+    };
+
+    // Persist KYC text fields
+    if (fullName) updateFields.name = fullName;
+    if (dateOfBirth) updateFields.dateOfBirth = dateOfBirth;
+    if (idType) updateFields.idType = idType;
+    if (idNumber) updateFields.idNumber = idNumber;
 
     const user = await User.findByIdAndUpdate(
       req.user._id,
-      {
-        'documents.idProof': idProof || '',
-        'documents.addressProof': addressProof || '',
-        'documents.photo': photo || '',
-        onboardingStatus: 'in-progress',
-      },
+      updateFields,
       { new: true, runValidators: true }
     );
 
@@ -51,8 +65,10 @@ const saveStep1 = async (req, res, next) => {
 
     return success(res, {
       documents: user.documents,
+      idType: user.idType,
+      idNumber: user.idNumber,
       onboardingStatus: user.onboardingStatus,
-    }, 'Step 1 saved — documents uploaded');
+    }, 'Step 1 saved — identity verified');
   } catch (err) {
     next(err);
   }
@@ -64,16 +80,27 @@ const saveStep1 = async (req, res, next) => {
  */
 const saveStep2 = async (req, res, next) => {
   try {
-    const { name, phone, relation } = req.body;
+    const { name, phone, relation, alternatePhone, parentIdType, parentIdNumber, parentIdFront, parentIdBack } = req.body;
+
+    const updateFields = {
+      'emergencyContact.name': name,
+      'emergencyContact.phone': phone,
+      'emergencyContact.relation': relation,
+      onboardingStatus: 'in-progress',
+    };
+
+    // Persist alternate phone if provided
+    if (alternatePhone) updateFields.phone = phone; // primary stays on emergencyContact
+
+    // Persist parent/guardian document info
+    if (parentIdType) updateFields['parentDocuments.idType'] = parentIdType;
+    if (parentIdNumber) updateFields['parentDocuments.idNumber'] = parentIdNumber;
+    if (parentIdFront) updateFields['parentDocuments.idFront'] = parentIdFront;
+    if (parentIdBack) updateFields['parentDocuments.idBack'] = parentIdBack;
 
     const user = await User.findByIdAndUpdate(
       req.user._id,
-      {
-        'emergencyContact.name': name,
-        'emergencyContact.phone': phone,
-        'emergencyContact.relation': relation,
-        onboardingStatus: 'in-progress',
-      },
+      updateFields,
       { new: true, runValidators: true }
     );
 
@@ -81,8 +108,9 @@ const saveStep2 = async (req, res, next) => {
 
     return success(res, {
       emergencyContact: user.emergencyContact,
+      parentDocuments: user.parentDocuments,
       onboardingStatus: user.onboardingStatus,
-    }, 'Step 2 saved — emergency contact set');
+    }, 'Step 2 saved — emergency contact & guardian ID set');
   } catch (err) {
     next(err);
   }
@@ -92,6 +120,8 @@ const saveStep2 = async (req, res, next) => {
  * PATCH /api/public/onboarding/step-3
  * Select room and mess package
  */
+const HOLD_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 const saveStep3 = async (req, res, next) => {
   try {
     const { roomId, messPackage } = req.body;
@@ -99,25 +129,44 @@ const saveStep3 = async (req, res, next) => {
     // Validate room exists and has availability
     const room = await Room.findById(roomId);
     if (!room) return error(res, 'Room not found', 404);
+
+    // Clean up expired holds before checking availability
+    const now = new Date();
+    room.holds = (room.holds || []).filter(h => h.holdUntil > now);
+    await room.save();
+
     if (!room.isAvailable) return error(res, 'This room is no longer available', 400);
 
-    // Check if user previously had a different room selected — release it
+    // Check if user previously had a different room selected — release hold
     const currentUser = await User.findById(req.user._id);
     if (currentUser.selectedRoom && currentUser.selectedRoom.toString() !== roomId) {
+      // Remove user's hold from previous room
       await Room.findByIdAndUpdate(currentUser.selectedRoom, {
-        $inc: { currentOccupancy: -1 },
+        $pull: { holds: { userId: req.user._id } },
       });
-      // Also reset status if it was full
+      // Reset status if it was full and now has capacity
       const prevRoom = await Room.findById(currentUser.selectedRoom);
-      if (prevRoom && prevRoom.currentOccupancy < prevRoom.capacity && prevRoom.status === 'full') {
-        prevRoom.status = 'available';
+      if (prevRoom) {
+        prevRoom.holds = (prevRoom.holds || []).filter(h => h.holdUntil > now);
+        if (prevRoom.status === 'full' && prevRoom.isAvailable) {
+          prevRoom.status = 'available';
+        }
         await prevRoom.save();
       }
     }
 
-    // Reserve the new room (increment occupancy)
-    room.currentOccupancy += 1;
-    if (room.currentOccupancy >= room.capacity) {
+    // Remove any existing hold by this user on this room (re-selection)
+    room.holds = room.holds.filter(h => h.userId.toString() !== req.user._id.toString());
+
+    // Place a timed hold on the new room
+    room.holds.push({
+      userId: req.user._id,
+      holdUntil: new Date(Date.now() + HOLD_DURATION_MS),
+    });
+
+    // Update room status if effectively full
+    const effectiveOccupancy = room.currentOccupancy + room.holds.filter(h => h.holdUntil > now).length;
+    if (effectiveOccupancy >= room.capacity) {
       room.status = 'full';
     }
     await room.save();
@@ -142,7 +191,7 @@ const saveStep3 = async (req, res, next) => {
       roomType: user.roomType,
       messPackage: user.messPackage,
       onboardingStatus: user.onboardingStatus,
-    }, 'Step 3 saved — room selected');
+    }, 'Step 3 saved — room reserved for 24 hours');
   } catch (err) {
     next(err);
   }
@@ -206,6 +255,23 @@ const confirmOnboarding = async (req, res, next) => {
 
     user.onboardingStatus = 'completed';
     await user.save();
+
+    // Convert temporary room hold into permanent occupancy
+    if (user.selectedRoom) {
+      const room = await Room.findById(user.selectedRoom._id || user.selectedRoom);
+      if (room) {
+        // Remove this user's hold
+        room.holds = (room.holds || []).filter(
+          h => h.userId.toString() !== user._id.toString()
+        );
+        // Increment actual occupancy
+        room.currentOccupancy += 1;
+        if (room.currentOccupancy >= room.capacity) {
+          room.status = 'full';
+        }
+        await room.save();
+      }
+    }
 
     // Emit real-time onboarding completion events
     emitToAdmins('user:updated', user);

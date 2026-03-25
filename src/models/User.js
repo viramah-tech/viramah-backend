@@ -66,10 +66,22 @@ const userSchema = new mongoose.Schema(
       addressProof: { type: String, default: '' },
       photo: { type: String, default: '' },
     },
+    idType: {
+      type: String,
+      enum: ['', 'aadhaar', 'passport', 'driving_license', 'voter_id'],
+      default: '',
+    },
+    idNumber: { type: String, trim: true, default: '' },
     emergencyContact: {
       name: { type: String, default: '' },
       phone: { type: String, default: '' },
       relation: { type: String, default: '' },
+    },
+    parentDocuments: {
+      idType: { type: String, enum: ['', 'aadhaar', 'passport', 'driving_license', 'voter_id'], default: '' },
+      idNumber: { type: String, trim: true, default: '' },
+      idFront: { type: String, default: '' },
+      idBack: { type: String, default: '' },
     },
     dateOfBirth: { type: Date },
     gender: { type: String, enum: ['', 'male', 'female', 'other'], default: '' },
