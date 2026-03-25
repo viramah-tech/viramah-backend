@@ -4,6 +4,7 @@ const authRoutes = require('./auth');
 const onboardingRoutes = require('./onboarding');
 const paymentRoutes = require('./payments');
 const uploadRoutes = require('./upload');
+const roomRoutes = require('./rooms');
 const { success } = require('../../utils/apiResponse');
 
 const router = express.Router();
@@ -30,5 +31,8 @@ router.use('/payments', paymentRoutes);
 
 // Resident file uploads (documents, photos, receipts)
 router.use('/upload', uploadRoutes);
+
+// Public room types (pricing, availability — no auth required)
+router.use('/rooms', roomRoutes);
 
 module.exports = router;
