@@ -7,7 +7,7 @@ const { success, error } = require('../../utils/apiResponse');
  */
 const register = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, phone } = req.body;
 
     // Check if email already exists
     const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -23,6 +23,7 @@ const register = async (req, res, next) => {
       userId,
       name,
       email: email.toLowerCase(),
+      phone: phone || '',
       password,
       role: 'user',
       status: 'active',
@@ -67,7 +68,7 @@ const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email: email.toLowerCase(), role: 'user' })
+    const user = await User.findOne({ email: email.toLowerCase(), role: { $in: ['user', 'resident'] } })
       .select('+password')
       .populate('roomTypeId', 'name');
 

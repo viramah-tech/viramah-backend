@@ -16,7 +16,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
     email: { type: String, required: true, unique: true, trim: true, lowercase: true },
-    phone: { type: String, required: true, trim: true },
+    phone: { type: String, trim: true, default: '' },
     password: { type: String, required: true },
     role: { type: String, enum: ['user', 'resident', 'admin', 'manager', 'accountant', 'warden'], default: 'user' },
     status: { type: String, enum: ['active', 'inactive', 'suspended'], default: 'active' },
@@ -32,6 +32,16 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ['unpaid', 'pending', 'approved', 'rejected'],
       default: 'unpaid',
+    },
+    documentVerificationStatus: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending',
+    },
+    moveInStatus: {
+      type: String,
+      enum: ['not_started', 'completed'],
+      default: 'not_started',
     },
     documents: {
       idProof: { type: String, default: '' },

@@ -74,9 +74,8 @@ const roomTypeSchema = new mongoose.Schema(
 );
 
 // Ensure availableSeats stays consistent: totalBeds - bookedSeats
-roomTypeSchema.pre('save', function (next) {
+roomTypeSchema.pre('save', function () {
   this.availableSeats = this.totalBeds - this.bookedSeats;
-  next();
 });
 
 module.exports = mongoose.model('RoomType', roomTypeSchema);

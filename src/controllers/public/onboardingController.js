@@ -28,6 +28,8 @@ const getStatus = async (req, res, next) => {
       gender: user.gender,
       address: user.address,
       paymentStatus: user.paymentStatus,
+      documentVerificationStatus: user.documentVerificationStatus,
+      moveInStatus: user.moveInStatus,
     }, 'Onboarding status fetched');
   } catch (err) {
     next(err);

@@ -149,6 +149,59 @@ const exportUsers = async (req, res, next) => {
   }
 };
 
+const approveDocumentVerification = async (req, res, next) => {
+  try {
+    const User = require('../../models/User');
+    const user = await User.findById(req.params.id);
+    if (!user) return error(res, 'User not found', 404);
+
+    if (user.paymentStatus !== 'approved') {
+      return error(res, 'Payment must be approved before document verification', 400);
+    }
+
+    user.documentVerificationStatus = 'approved';
+    await user.save();
+
+    const updatedUser = await User.findById(user._id).populate('roomTypeId', 'name');
+    const userData = updatedUser.toObject();
+    userData.roomType = userData.roomTypeId ? userData.roomTypeId.name : '';
+
+    emitToUser(user._id.toString(), 'user:updated', userData);
+    emitToAdmins('user:updated', userData);
+    return success(res, userData, 'Document verification approved');
+  } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode);
+    next(err);
+  }
+};
+
+const completeMoveIn = async (req, res, next) => {
+  try {
+    const User = require('../../models/User');
+    const user = await User.findById(req.params.id);
+    if (!user) return error(res, 'User not found', 404);
+
+    if (user.documentVerificationStatus !== 'approved') {
+      return error(res, 'Documents must be verified before move-in', 400);
+    }
+
+    user.moveInStatus = 'completed';
+    user.role = 'resident';
+    await user.save();
+
+    const updatedUser = await User.findById(user._id).populate('roomTypeId', 'name');
+    const userData = updatedUser.toObject();
+    userData.roomType = userData.roomTypeId ? userData.roomTypeId.name : '';
+
+    emitToUser(user._id.toString(), 'user:updated', userData);
+    emitToAdmins('user:updated', userData);
+    return success(res, userData, 'Move-in completed, user promoted to resident');
+  } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode);
+    next(err);
+  }
+};
+
 module.exports = {
   getUsers,
   getUserStats,
@@ -161,4 +214,6 @@ module.exports = {
   changeUserPassword,
   searchUsers,
   exportUsers,
+  approveDocumentVerification,
+  completeMoveIn,
 };

@@ -16,6 +16,8 @@ const {
   changeUserPassword,
   searchUsers,
   exportUsers,
+  approveDocumentVerification,
+  completeMoveIn,
 } = require('../../controllers/admin/userController');
 
 const router = express.Router();
@@ -75,6 +77,20 @@ router.patch(
   validate,
   auditLog('ASSIGN_ROOM', 'user'),
   updateRoom
+);
+
+// PATCH /:id/verify-documents - Approve document verification
+router.patch(
+  '/:id/verify-documents',
+  auditLog('VERIFY_DOCUMENTS', 'user'),
+  approveDocumentVerification
+);
+
+// PATCH /:id/complete-move-in - Complete move-in process
+router.patch(
+  '/:id/complete-move-in',
+  auditLog('COMPLETE_MOVE_IN', 'user'),
+  completeMoveIn
 );
 
 // POST /:id/change-password - Change user password (admin only)
