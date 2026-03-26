@@ -23,9 +23,29 @@ const paymentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected'],
+      enum: ['pending', 'approved', 'rejected', 'upcoming'],
       default: 'pending',
     },
+
+    /** Amount of security deposit already paid that was credited against this payment (0 if no hold). */
+    depositCredited: { type: Number, default: 0 },
+
+    /** Which installment this payment represents (1 = first/only, 2 = second half-pay). */
+    installmentNumber: { type: Number, enum: [1, 2], default: 1 },
+
+    /** Payment mode chosen by the resident at onboarding time. */
+    paymentMode: {
+      type: String,
+      enum: ['full', 'half'],
+      default: null,
+    },
+
+    /**
+     * Due date for this payment.
+     * - Installment 1: onboarding date.
+     * - Installment 2 (half-pay): 5 months after installment 1 due date.
+     */
+    dueDate: { type: Date, default: null },
     paymentMethod: {
       type: String,
       trim: true,
@@ -53,6 +73,35 @@ const paymentSchema = new mongoose.Schema(
       ref: 'User',
     },
     reviewedAt: { type: Date },
+
+    /**
+     * Immutable price breakdown — set once when the Payment is created.
+     * Acts as an audit trail. MUST NOT be modified after initial save.
+     * Old Payment documents without breakdown will have null here — handled defensively in service layer.
+     */
+    breakdown: {
+      roomMonthly:          { type: Number, default: null },
+      discountedMonthlyBase: { type: Number, default: null }, // post-discount, pre-GST
+      monthlyGST:           { type: Number, default: null },
+      discountedMonthlyWithGST: { type: Number, default: null },
+      roomRentTotal:        { type: Number, default: null }, // for this installment's months
+      registrationFee:      { type: Number, default: null },
+      securityDeposit:      { type: Number, default: null },
+      transportMonthly:     { type: Number, default: null },
+      transportTotal:       { type: Number, default: null },
+      messMonthly:          { type: Number, default: null },
+      messTotal:            { type: Number, default: null },
+      messIsLumpSum:        { type: Boolean, default: false },
+      discountRate:         { type: Number, default: null },
+      gstRate:              { type: Number, default: null },
+      tenureMonths:         { type: Number, default: null }, // total tenure months
+      installmentMonths:    { type: Number, default: null }, // months covered by THIS installment
+      subtotal:             { type: Number, default: null }, // discounted room + addons (no flat fees)
+      flatFees:             { type: Number, default: null }, // registrationFee + securityDeposit
+      referralDeduction:    { type: Number, default: null },
+      finalAmount:          { type: Number, default: null }, // = subtotal + flatFees - referralDeduction - depositCredited
+      depositCredited:      { type: Number, default: 0 },   // deposit already paid, credited here
+    },
   },
   {
     timestamps: true,
@@ -63,6 +112,21 @@ const paymentSchema = new mongoose.Schema(
 paymentSchema.pre('save', function () {
   if (!this.paymentId) {
     this.paymentId = `PAY-${uuidv4().split('-')[0].toUpperCase()}`;
+  }
+});
+
+/**
+ * Guard: prevent breakdown from being modified once set.
+ * The breakdown is an immutable audit trail — once a Payment is created with a
+ * breakdown, that breakdown must never change.
+ */
+paymentSchema.pre('save', function () {
+  if (!this.isNew && this.isModified('breakdown')) {
+    // If breakdown was already set (not null), block the change
+    if (this._doc && this._doc.breakdown && this._doc.breakdown.finalAmount != null) {
+      // Restore original breakdown — silently protect immutability
+      this.breakdown = this._doc.breakdown;
+    }
   }
 });
 

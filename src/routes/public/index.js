@@ -1,10 +1,12 @@
-const express = require('express');
-const enquiryRoutes = require('./enquiry');
-const authRoutes = require('./auth');
+const express        = require('express');
+const enquiryRoutes  = require('./enquiry');
+const authRoutes     = require('./auth');
 const onboardingRoutes = require('./onboarding');
-const paymentRoutes = require('./payments');
-const uploadRoutes = require('./upload');
-const roomRoutes = require('./rooms');
+const paymentRoutes  = require('./payments');
+const uploadRoutes   = require('./upload');
+const roomRoutes     = require('./rooms');
+const referralRoutes = require('./referral');
+const depositRoutes  = require('./deposits');
 const { success } = require('../../utils/apiResponse');
 
 const router = express.Router();
@@ -34,5 +36,11 @@ router.use('/upload', uploadRoutes);
 
 // Public room types (pricing, availability — no auth required)
 router.use('/rooms', roomRoutes);
+
+// Referral code validation (auth-optional)
+router.use('/referral', referralRoutes);
+
+// Room deposit & hold policy (Phase 1.5)
+router.use('/deposits', depositRoutes);
 
 module.exports = router;

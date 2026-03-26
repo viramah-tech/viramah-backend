@@ -7,6 +7,7 @@ const { auditLog } = require('../../middleware/requestLogger');
 const {
   getPayments,
   getPaymentStats,
+  getPaymentAnalytics,
   getPaymentById,
   createPayment,
   approvePayment,
@@ -22,6 +23,9 @@ router.use(protect, authorize('admin', 'accountant'));
 
 router.get('/', getPayments);
 router.get('/stats', getPaymentStats);
+
+// Analytics must be BEFORE /:id to avoid route conflict
+router.get('/analytics', getPaymentAnalytics);
 
 // Export must be BEFORE /:id to avoid route conflicts
 router.get('/export/data', exportPayments);

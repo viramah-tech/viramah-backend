@@ -41,13 +41,26 @@ const transactionSchema = new mongoose.Schema(
       enum: ['completed', 'pending', 'failed'],
       default: 'completed',
     },
-    balanceBefore: {
-      type: Number,
-      default: 0,
-    },
-    balanceAfter: {
-      type: Number,
-      default: 0,
+    balanceBefore: { type: Number, default: 0 },
+    balanceAfter:  { type: Number, default: 0 },
+
+    /** Which installment triggered this transaction (1 or 2). Null for legacy records. */
+    installmentNumber: { type: Number, default: null },
+
+    /**
+     * Denormalized breakdown snapshot from the Payment at the time of transaction creation.
+     * Provides a self-contained audit trail — does not require a join to Payment.breakdown.
+     */
+    breakdown: {
+      roomRentTotal:     { type: Number, default: null },
+      registrationFee:   { type: Number, default: null },
+      securityDeposit:   { type: Number, default: null },
+      transportTotal:    { type: Number, default: null },
+      messTotal:         { type: Number, default: null },
+      discountRate:      { type: Number, default: null },
+      gstRate:           { type: Number, default: null },
+      referralDeduction: { type: Number, default: null },
+      finalAmount:       { type: Number, default: null },
     },
   },
   {

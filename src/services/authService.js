@@ -1,5 +1,9 @@
 const User = require('../models/User');
 
+// Note: referralCode auto-generation is handled by the User model's pre-save hook.
+// The hook retries up to 5 times to ensure uniqueness using crypto.randomBytes.
+// No explicit generation is needed here — saving the User triggers the hook.
+
 const login = async (userId, password, role) => {
   // Check for roles not yet activated
   if (['manager', 'warden'].includes(role)) {

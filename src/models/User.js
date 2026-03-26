@@ -1,6 +1,15 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+
+/**
+ * Generates a unique referral code string (without the VIR- prefix).
+ * Uses 4 random bytes, hex-encoded, uppercased, limited to 6 chars.
+ * @returns {string} 6-character alphanumeric string
+ */
+const generateReferralSuffix = () =>
+  crypto.randomBytes(4).toString('hex').toUpperCase().slice(0, 6);
 
 const userSchema = new mongoose.Schema(
   {
@@ -96,19 +105,79 @@ const userSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'RoomType',
     },
+
+    // ── Referral System ──────────────────────────────────────────────────────
+    /** Auto-generated unique code. Format: VIR-XXXXXX (6 alphanumeric chars). */
+    referralCode: {
+      type: String,
+      unique: true,
+      sparse: true, // allows null/undefined without unique constraint violation
+      trim: true,
+      uppercase: true,
+    },
+    /** Referral code the user entered at onboarding (from another user). Nullable. */
+    referredBy: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: null,
+    },
+    /** Accumulated referral credits (in INR). Each successful referral adds referralBonus. */
+    referralCredit: { type: Number, default: 0, min: 0 },
+
+    // ── Payment Preferences (set during onboarding) ───────────────────────
+    /** Payment mode selected by the user during onboarding. */
+    paymentMode: {
+      type: String,
+      enum: ['full', 'half'],
+      default: null,
+    },
+    /** Add-ons selected by the user during onboarding. */
+    selectedAddOns: {
+      transport: { type: Boolean, default: false },
+      mess:      { type: Boolean, default: false },
+      messLumpSum: { type: Boolean, default: false }, // only valid for full payment mode
+    },
+
+    // ── Tenure Tracking ───────────────────────────────────────────────────
+    /** Start date of the 11-month tenure (set when first payment is initiated). */
+    tenureStartDate: { type: Date, default: null },
+    /** End date of the tenure (tenureStartDate + 11 months). */
+    tenureEndDate:   { type: Date, default: null },
   },
   {
     timestamps: true,
   }
 );
 
-// Hash password before saving
+// Hash password before saving + auto-generate referralCode if missing
 userSchema.pre('save', async function () {
-  if (!this.isModified('password')) {
-    return;
+  // Hash password only if modified
+  if (this.isModified('password')) {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
   }
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
+
+  // Auto-generate referral code for new users (or users that somehow lack one)
+  if (!this.referralCode) {
+    // Retry up to 5 times to guarantee uniqueness
+    let attempts = 0;
+    while (attempts < 5) {
+      const candidate = `VIR-${generateReferralSuffix()}`;
+      // Use the model directly to check uniqueness (model may not be registered yet on first call,
+      // so we use this.constructor which refers to the User model instance)
+      const exists = await this.constructor.exists({ referralCode: candidate });
+      if (!exists) {
+        this.referralCode = candidate;
+        break;
+      }
+      attempts += 1;
+    }
+    if (!this.referralCode) {
+      // Extremely unlikely; fallback using timestamp salt
+      this.referralCode = `VIR-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+    }
+  }
 });
 
 // Compare entered password with hashed password
