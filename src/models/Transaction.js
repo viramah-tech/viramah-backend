@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
 
 const transactionSchema = new mongoose.Schema(
   {
@@ -54,11 +55,10 @@ const transactionSchema = new mongoose.Schema(
   }
 );
 
-// Auto-generate transactionId before saving
-transactionSchema.pre('save', async function () {
+// Auto-generate transactionId before saving (collision-free)
+transactionSchema.pre('save', function () {
   if (!this.transactionId) {
-    const count = await mongoose.model('Transaction').countDocuments();
-    this.transactionId = `TXN${String(count + 1).padStart(6, '0')}`;
+    this.transactionId = `TXN-${uuidv4().split('-')[0].toUpperCase()}`;
   }
 });
 

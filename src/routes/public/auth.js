@@ -11,11 +11,21 @@ const router = express.Router();
 router.post(
   '/register',
   [
-    body('name').trim().notEmpty().withMessage('Name is required'),
+    body('name').trim().notEmpty().withMessage('Name is required')
+      .isLength({ min: 2 }).withMessage('Name must be at least 2 characters'),
     body('email').isEmail().withMessage('Valid email is required'),
     body('password')
       .isLength({ min: 8 })
-      .withMessage('Password must be at least 8 characters'),
+      .withMessage('Password must be at least 8 characters')
+      .custom((value, { req }) => {
+        if (req.body.email && value.toLowerCase() === req.body.email.toLowerCase()) {
+          throw new Error('Password must not be the same as your email');
+        }
+        if (req.body.name && value.toLowerCase() === req.body.name.trim().toLowerCase()) {
+          throw new Error('Password must not be the same as your name');
+        }
+        return true;
+      }),
   ],
   validate,
   register

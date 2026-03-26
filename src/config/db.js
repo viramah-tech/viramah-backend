@@ -22,6 +22,22 @@ const connectDB = async () => {
     const conn = await mongoose.connect(uri, options);
     console.log(`MongoDB connected: ${conn.connection.host}`);
 
+    // Drop stale unique indexes that cause duplicate-key errors
+    try {
+      const db = conn.connection.db;
+      const paymentIndexes = await db.collection('payments').indexes();
+      const txnIdx = paymentIndexes.find(i => i.key && i.key.transactionId && i.unique);
+      if (txnIdx) {
+        await db.collection('payments').dropIndex(txnIdx.name);
+        console.log(`Dropped stale index "${txnIdx.name}" from payments collection`);
+      }
+    } catch (idxErr) {
+      // Non-fatal — index may not exist
+      if (!idxErr.message.includes('not found')) {
+        console.warn('Index cleanup warning:', idxErr.message);
+      }
+    }
+
     // Connection event handlers
     mongoose.connection.on('error', (err) => {
       console.error('MongoDB connection error:', err.message);

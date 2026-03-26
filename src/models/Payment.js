@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
 
 const paymentSchema = new mongoose.Schema(
   {
@@ -58,17 +59,10 @@ const paymentSchema = new mongoose.Schema(
   }
 );
 
-// Unique index on transactionId — sparse so empty defaults don't collide
-paymentSchema.index(
-  { transactionId: 1 },
-  { unique: true, sparse: true, partialFilterExpression: { transactionId: { $ne: '' } } }
-);
-
-// Auto-generate paymentId before saving
-paymentSchema.pre('save', async function () {
+// Auto-generate paymentId before saving (collision-free)
+paymentSchema.pre('save', function () {
   if (!this.paymentId) {
-    const count = await mongoose.model('Payment').countDocuments();
-    this.paymentId = `PAY${String(count + 1).padStart(6, '0')}`;
+    this.paymentId = `PAY-${uuidv4().split('-')[0].toUpperCase()}`;
   }
 });
 
