@@ -18,12 +18,13 @@ const {
   exportUsers,
   approveDocumentVerification,
   completeMoveIn,
+  deleteUser,
 } = require('../../controllers/admin/userController');
 
 const router = express.Router();
 
 // All routes require authentication and admin role
-router.use(protect, authorize('admin'));
+router.use(protect, authorize('admin', 'accountant'));
 
 router.get('/', getUsers);
 router.get('/stats', getUserStats);
@@ -100,6 +101,13 @@ router.post(
   validate,
   auditLog('CHANGE_PASSWORD', 'user'),
   changeUserPassword
+);
+
+// DELETE /:id - Delete user (admin only)
+router.delete(
+  '/:id',
+  auditLog('DELETE_USER', 'user'),
+  deleteUser
 );
 
 module.exports = router;

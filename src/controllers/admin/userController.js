@@ -202,6 +202,19 @@ const completeMoveIn = async (req, res, next) => {
   }
 };
 
+const deleteUser = async (req, res, next) => {
+  try {
+    const result = await userService.deleteUser(req.params.id);
+    emitToAdmins('user:deleted', { userId: req.params.id });
+    return success(res, result, 'User deleted successfully');
+  } catch (err) {
+    if (err.statusCode) {
+      return error(res, err.message, err.statusCode);
+    }
+    next(err);
+  }
+};
+
 module.exports = {
   getUsers,
   getUserStats,
@@ -216,4 +229,5 @@ module.exports = {
   exportUsers,
   approveDocumentVerification,
   completeMoveIn,
+  deleteUser,
 };

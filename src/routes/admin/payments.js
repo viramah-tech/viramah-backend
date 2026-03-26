@@ -18,7 +18,7 @@ const {
 const router = express.Router();
 
 // All routes require authentication and admin role
-router.use(protect, authorize('admin'));
+router.use(protect, authorize('admin', 'accountant'));
 
 router.get('/', getPayments);
 router.get('/stats', getPaymentStats);

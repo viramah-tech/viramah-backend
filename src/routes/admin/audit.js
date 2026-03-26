@@ -5,7 +5,7 @@ const AuditLog = require('../../models/AuditLog');
 const { success } = require('../../utils/apiResponse');
 
 const router = express.Router();
-router.use(protect, authorize('admin'));
+router.use(protect, authorize('admin', 'accountant'));
 
 // GET /api/admin/audit - Get audit logs with pagination and filtering
 router.get('/', async (req, res, next) => {

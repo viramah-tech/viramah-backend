@@ -199,6 +199,25 @@ const exportUsers = async ({ role, status, onboardingStatus }) => {
   });
 };
 
+const deleteUser = async (id) => {
+  const user = await User.findById(id);
+  if (!user) {
+    const err = new Error('User not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (user.role === 'admin') {
+    const err = new Error('Cannot delete admin users');
+    err.statusCode = 403;
+    throw err;
+  }
+  await User.findByIdAndDelete(id);
+  // Clean up associated payments
+  const Payment = require('../models/Payment');
+  await Payment.deleteMany({ userId: id });
+  return { deleted: true, userId: user.userId };
+};
+
 module.exports = {
   getUsers,
   getUserStats,
@@ -209,4 +228,5 @@ module.exports = {
   changePassword,
   searchUsers,
   exportUsers,
+  deleteUser,
 };

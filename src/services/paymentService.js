@@ -54,8 +54,11 @@ const getPaymentStats = async () => {
   });
 
   return {
+    total: totalResult[0]?.count || 0,
+    pending: statusStats.pending?.count || 0,
+    approved: statusStats.approved?.count || 0,
+    rejected: statusStats.rejected?.count || 0,
     totalAmount: totalResult[0]?.totalAmount || 0,
-    totalCount: totalResult[0]?.count || 0,
     byStatus: statusStats,
     recentPayments,
   };
@@ -121,6 +124,7 @@ const rejectPayment = async (id, remarks) => {
   payment.remarks = remarks || '';
   await payment.save();
 
+  await payment.populate('userId', 'userId name email');
   return payment;
 };
 
