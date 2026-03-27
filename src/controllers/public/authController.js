@@ -18,16 +18,23 @@ const register = async (req, res, next) => {
     }
 
     // Auto-generate userId with retry loop.
-    // Uses MongoDB's unique index on userId as the atomicity guard.
-    // If a concurrent registration creates a collision (11000 on userId),
-    // we retry with an incremented counter (up to 5 attempts).
+    // Uses the highest existing RES-prefixed userId (not countDocuments) so that
+    // gaps created by deleted users never cause collisions.
+    // MongoDB's unique index on userId is the final atomicity guard.
     const MAX_RETRIES = 5;
     let user;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        const count = await User.countDocuments();
-        const userId = `RES${String(count + 1 + attempt).padStart(6, '0')}`;
+        // Find the highest existing RES-prefixed userId
+        const lastUser = await User.findOne({ userId: /^RES/ })
+          .sort({ userId: -1 })
+          .select('userId')
+          .lean();
+        const lastNum = lastUser
+          ? parseInt(lastUser.userId.replace('RES', ''), 10)
+          : 0;
+        const userId = `RES${String(lastNum + 1 + attempt).padStart(6, '0')}`;
 
         user = await User.create({
           userId,
@@ -41,16 +48,16 @@ const register = async (req, res, next) => {
         });
         break; // Success — exit the retry loop
       } catch (createErr) {
-        // Only retry on userId collision (11000 on userId field)
-        const isUserIdCollision =
+        // Retry on userId OR referralCode collisions (both are auto-generated)
+        const collidedField =
           createErr.code === 11000 &&
           createErr.keyPattern &&
-          createErr.keyPattern.userId;
+          (createErr.keyPattern.userId || createErr.keyPattern.referralCode);
 
-        if (!isUserIdCollision || attempt === MAX_RETRIES - 1) {
-          throw createErr; // Re-throw non-userId errors or final attempt failure
+        if (!collidedField || attempt === MAX_RETRIES - 1) {
+          throw createErr; // Re-throw non-retryable errors or final attempt failure
         }
-        // userId collision — retry with incremented counter
+        // Auto-generated field collision — retry
       }
     }
 
@@ -78,13 +85,35 @@ const register = async (req, res, next) => {
     );
   } catch (err) {
     if (err.code === 11000) {
-      const field = err.keyPattern ? Object.keys(err.keyPattern)[0] : 'email';
-      const message = field === 'email'
-        ? 'An account with this email address already exists. Please log in instead.'
-        : field === 'userId'
-          ? 'A user ID conflict occurred. Please try again.'
-          : `A duplicate ${field} conflict occurred. Please try again.`;
-      return error(res, message, 409);
+      // Identify the conflicting field — use keyValue as fallback (more reliable
+      // than keyPattern across MongoDB driver versions)
+      const keyPatternObj = err.keyPattern || {};
+      const keyValueObj = err.keyValue || {};
+      const field = Object.keys(keyPatternObj)[0]
+        || Object.keys(keyValueObj)[0]
+        || 'unknown';
+
+      if (field === 'email') {
+        return error(
+          res,
+          'An account with this email address already exists. Please log in instead.',
+          409
+        );
+      }
+
+      // Any other duplicate key error (userId, referralCode, stale index) —
+      // never blame the email for someone else's collision
+      console.error('[Register] Unexpected duplicate key error:', {
+        field,
+        keyValue: keyValueObj,
+        keyPattern: keyPatternObj,
+        message: err.message,
+      });
+      return error(
+        res,
+        'A temporary conflict occurred. Please try again.',
+        409
+      );
     }
     next(err);
   }
