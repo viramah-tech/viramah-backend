@@ -12,7 +12,7 @@ const register = async (req, res, next) => {
     // Check if email already exists
     const existingUser = await User.findOne({ email: email.toLowerCase() });
     if (existingUser) {
-      return error(res, 'An account with this email already exists', 409);
+      return error(res, 'An account with this email address already exists. Please log in instead.', 409);
     }
 
     // Auto-generate userId (e.g., RES000001)
@@ -54,7 +54,14 @@ const register = async (req, res, next) => {
     );
   } catch (err) {
     if (err.code === 11000) {
-      return error(res, 'An account with this email already exists', 409);
+      // Determine which field caused the duplicate key violation
+      const field = err.keyPattern ? Object.keys(err.keyPattern)[0] : 'email';
+      const message = field === 'email'
+        ? 'An account with this email address already exists. Please log in instead.'
+        : field === 'userId'
+          ? 'A user ID conflict occurred. Please try again.'
+          : `A duplicate ${field} conflict occurred. Please try again.`;
+      return error(res, message, 409);
     }
     next(err);
   }

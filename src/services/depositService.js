@@ -17,9 +17,11 @@ const RefundRecord = require('../models/RefundRecord');
 const RoomType    = require('../models/RoomType');
 const User        = require('../models/User');
 
-const DEPOSIT_AMOUNT    = 15000; // Server-side constant. NEVER from request.
-const REFUND_WINDOW_DAYS   = 7;
-const PAYMENT_WINDOW_DAYS  = 21;
+const DEPOSIT_AMOUNT        = 15000; // Security deposit. Server-side constant. NEVER from request.
+const REGISTRATION_FEE      = 1000;  // Non-refundable registration fee. Server-side constant.
+const TOTAL_DEPOSIT_PAYMENT = 16000; // = DEPOSIT_AMOUNT + REGISTRATION_FEE
+const REFUND_WINDOW_DAYS    = 7;
+const PAYMENT_WINDOW_DAYS   = 21;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -45,8 +47,8 @@ const auditLog = (event, data) =>
  * @returns {Promise<RoomHold>}
  */
 const initiateDeposit = async (userId, roomTypeId, paymentMode, { transactionId, receiptUrl }) => {
-  if (!['full', 'half'].includes(paymentMode)) {
-    const err = new Error('paymentMode must be "full" or "half".');
+  if (!['full', 'half', 'deposit'].includes(paymentMode)) {
+    const err = new Error('paymentMode must be "full", "half", or "deposit".');
     err.statusCode = 400;
     throw err;
   }
@@ -80,17 +82,22 @@ const initiateDeposit = async (userId, roomTypeId, paymentMode, { transactionId,
     throw err;
   }
 
+  // For deposit-only mode: store the ₹1,000 registration fee and total paid now as server-side constants.
+  const isDepositOnly = paymentMode === 'deposit';
+
   const hold = await RoomHold.create({
     userId,
     roomTypeId,
     paymentMode,
-    depositAmount:         DEPOSIT_AMOUNT,
-    depositTransactionId:  transactionId || '',
-    depositReceiptUrl:     receiptUrl    || '',
-    status:                'pending_approval',
+    depositAmount:           DEPOSIT_AMOUNT,
+    registrationFeePaid:     isDepositOnly ? REGISTRATION_FEE : 0,
+    totalPaidAtDeposit:      isDepositOnly ? TOTAL_DEPOSIT_PAYMENT : 0,
+    depositTransactionId:    transactionId || '',
+    depositReceiptUrl:       receiptUrl    || '',
+    status:                  'pending_approval',
   });
 
-  auditLog('DEPOSIT_INITIATED', { userId, roomTypeId, paymentMode, holdId: hold._id });
+  auditLog('DEPOSIT_INITIATED', { userId, roomTypeId, paymentMode, holdId: hold._id, isDepositOnly, totalPaidAtDeposit: hold.totalPaidAtDeposit });
 
   return hold;
 };
@@ -439,6 +446,29 @@ const getHoldStatus = async (userId) => {
   };
 };
 
+// ── getDepositOnlyStatus ──────────────────────────────────────────────────────
+
+/**
+ * Returns enriched hold status specifically for deposit-only payment mode.
+ * Includes refundableAmount vs nonRefundableAmount for frontend display.
+ *
+ * @param {string} userId
+ * @returns {Promise<Object|null>}
+ */
+const getDepositOnlyStatus = async (userId) => {
+  const hold = await getHoldStatus(userId);
+  if (!hold) return null;
+
+  const isDepositOnly = hold.paymentMode === 'deposit';
+
+  return {
+    ...hold,
+    totalPaidAtDeposit:   isDepositOnly ? (hold.totalPaidAtDeposit || TOTAL_DEPOSIT_PAYMENT) : null,
+    refundableAmount:     isDepositOnly ? DEPOSIT_AMOUNT : hold.depositAmount,
+    nonRefundableAmount:  isDepositOnly ? REGISTRATION_FEE : 0,
+  };
+};
+
 module.exports = {
   initiateDeposit,
   approveDeposit,
@@ -449,4 +479,5 @@ module.exports = {
   markHoldConverted,
   expireOverdueHolds,
   getHoldStatus,
+  getDepositOnlyStatus,
 };

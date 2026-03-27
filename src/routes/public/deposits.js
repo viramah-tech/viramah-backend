@@ -26,6 +26,11 @@ router.post(
       .withMessage('roomTypeId is required')
       .isMongoId()
       .withMessage('roomTypeId must be a valid ID'),
+    body('paymentMode')
+      .notEmpty()
+      .withMessage('paymentMode is required')
+      .isIn(['full', 'half', 'deposit'])
+      .withMessage('paymentMode must be "full", "half", or "deposit"'),
     body('transactionId')
       .trim()
       .notEmpty()

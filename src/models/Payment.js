@@ -36,9 +36,15 @@ const paymentSchema = new mongoose.Schema(
     /** Payment mode chosen by the resident at onboarding time. */
     paymentMode: {
       type: String,
-      enum: ['full', 'half'],
+      enum: ['full', 'half', 'deposit'],
       default: null,
     },
+
+    /**
+     * True when this Payment record represents the ₹16,000 deposit-only transaction
+     * (₹15,000 security + ₹1,000 registration fee). False for all normal payments.
+     */
+    depositOnly: { type: Boolean, default: false },
 
     /**
      * Due date for this payment.
@@ -101,6 +107,10 @@ const paymentSchema = new mongoose.Schema(
       referralDeduction:    { type: Number, default: null },
       finalAmount:          { type: Number, default: null }, // = subtotal + flatFees - referralDeduction - depositCredited
       depositCredited:      { type: Number, default: 0 },   // deposit already paid, credited here
+      // Deposit-only specific fields (populated only when depositOnly: true)
+      isDepositOnly:        { type: Boolean, default: false },
+      refundableAmount:     { type: Number, default: null }, // 15000 for deposit-only
+      nonRefundableAmount:  { type: Number, default: null }, // 1000 for deposit-only
     },
   },
   {

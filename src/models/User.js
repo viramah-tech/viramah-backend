@@ -129,7 +129,7 @@ const userSchema = new mongoose.Schema(
     /** Payment mode selected by the user during onboarding. */
     paymentMode: {
       type: String,
-      enum: ['full', 'half'],
+      enum: ['full', 'half', 'deposit'],
       default: null,
     },
     /** Add-ons selected by the user during onboarding. */

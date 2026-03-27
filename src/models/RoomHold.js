@@ -48,9 +48,32 @@ const roomHoldSchema = new mongoose.Schema(
      */
     paymentMode: {
       type: String,
-      enum: ['full', 'half'],
+      enum: ['full', 'half', 'deposit'],
       required: true,
       default: 'full',
+    },
+
+    /**
+     * For deposit-only mode: ₹1,000 registration fee collected non-refundably.
+     * Always 1000 for new deposits. 0 for legacy full/half deposits.
+     */
+    registrationFeePaid: { type: Number, default: 0 },
+
+    /**
+     * Total collected at deposit stage: depositAmount + registrationFeePaid.
+     * For deposit-only: 16000 (15000 + 1000).
+     * For legacy full/half deposits: 0 (fees were in the main payment).
+     */
+    totalPaidAtDeposit: { type: Number, default: 0 },
+
+    /**
+     * Set when user returns to complete full payment after a 'deposit' mode hold.
+     * null until user selects 'full' or 'half' on the return payment page.
+     */
+    finalPaymentMode: {
+      type: String,
+      enum: ['full', 'half', null],
+      default: null,
     },
 
     /**
