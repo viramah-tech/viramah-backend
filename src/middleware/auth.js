@@ -32,4 +32,30 @@ const protect = async (req, res, next) => {
   }
 };
 
-module.exports = { protect };
+/**
+ * Optional auth — sets req.user if a valid Bearer token is present,
+ * but does NOT block the request if missing or invalid.
+ * Use for endpoints that work for guests but provide extra features for logged-in users.
+ */
+const optionalProtect = async (req, _res, next) => {
+  let token;
+
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    token = req.headers.authorization.split(' ')[1];
+  } else if (req.cookies && req.cookies.token) {
+    token = req.cookies.token;
+  }
+
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = await User.findById(decoded.id).select('-password');
+    } catch {
+      // Invalid token — silently continue without req.user
+    }
+  }
+
+  next();
+};
+
+module.exports = { protect, optionalProtect };

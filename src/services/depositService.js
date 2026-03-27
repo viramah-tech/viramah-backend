@@ -53,11 +53,11 @@ const auditLog = (event, data) =>
  *
  * @param {string} userId
  * @param {string} roomTypeId
- * @param {string} paymentMode - 'full' | 'half' (locked at deposit, cannot change)
- * @param {{ transactionId: string, receiptUrl: string }} transactionDetails
+ * @param {string} paymentMode - 'full' | 'half' | 'deposit'
+ * @param {{ transactionId: string, receiptUrl: string, totalAmount?: number }} transactionDetails
  * @returns {Promise<RoomHold>}
  */
-const initiateDeposit = async (userId, roomTypeId, paymentMode, { transactionId, receiptUrl }) => {
+const initiateDeposit = async (userId, roomTypeId, paymentMode, { transactionId, receiptUrl, totalAmount }) => {
   if (!['full', 'half', 'deposit'].includes(paymentMode)) {
     const err = new Error('paymentMode must be "full", "half", or "deposit".');
     err.statusCode = 400;
@@ -107,19 +107,47 @@ const initiateDeposit = async (userId, roomTypeId, paymentMode, { transactionId,
   // For deposit-only mode: store the registration fee and total paid as server-side constants.
   const isDepositOnly = paymentMode === 'deposit';
 
+  // Flexible advance: user can pay more than the minimum ₹16,000.
+  // totalAmount is the amount the user claims to have paid.
+  // If not provided, defaults to the mandatory minimum.
+  const effectiveTotalAmount = isDepositOnly
+    ? Math.max(totalAmount || TOTAL_DEPOSIT_PAYMENT, TOTAL_DEPOSIT_PAYMENT)
+    : 0;
+
+  // Validate: totalAmount must be >= mandatory minimum
+  if (isDepositOnly && totalAmount && totalAmount < TOTAL_DEPOSIT_PAYMENT) {
+    const err = new Error(
+      `Minimum deposit is ₹${TOTAL_DEPOSIT_PAYMENT.toLocaleString('en-IN')} ` +
+      `(₹${DEPOSIT_AMOUNT.toLocaleString('en-IN')} security + ₹${REGISTRATION_FEE.toLocaleString('en-IN')} registration). ` +
+      `You entered ₹${totalAmount.toLocaleString('en-IN')}.`
+    );
+    err.statusCode = 422;
+    throw err;
+  }
+
+  // Calculate advance: anything above the mandatory ₹16,000
+  const advanceAmount = isDepositOnly
+    ? Math.max(0, effectiveTotalAmount - TOTAL_DEPOSIT_PAYMENT)
+    : 0;
+
   const hold = await RoomHold.create({
     userId,
     roomTypeId,
     paymentMode,
     depositAmount:           DEPOSIT_AMOUNT,
     registrationFeePaid:     isDepositOnly ? REGISTRATION_FEE : 0,
-    totalPaidAtDeposit:      isDepositOnly ? TOTAL_DEPOSIT_PAYMENT : 0,
+    advanceAmount,
+    totalPaidAtDeposit:      effectiveTotalAmount,
     depositTransactionId:    transactionId || '',
     depositReceiptUrl:       receiptUrl    || '',
     status:                  'pending_approval',
   });
 
-  auditLog('DEPOSIT_INITIATED', { userId, roomTypeId, paymentMode, holdId: hold._id, isDepositOnly, totalPaidAtDeposit: hold.totalPaidAtDeposit });
+  auditLog('DEPOSIT_INITIATED', {
+    userId, roomTypeId, paymentMode, holdId: hold._id,
+    isDepositOnly, totalPaidAtDeposit: hold.totalPaidAtDeposit,
+    advanceAmount, effectiveTotalAmount,
+  });
 
   return hold;
 };
@@ -209,10 +237,13 @@ const requestRefund = async (userId, reason = '') => {
   hold.refundRequestedAt = now;
   await hold.save();
 
+  // Refundable total: security deposit + advance amount (registration fee NEVER refunded)
+  const refundableTotal = hold.depositAmount + (hold.advanceAmount || 0);
+
   const refundRecord = await RefundRecord.create({
     roomHoldId:  hold._id,
     userId,
-    amount:      hold.depositAmount,
+    amount:      refundableTotal,
     reason,
     requestedAt: now,
     status:      'requested',
@@ -355,9 +386,12 @@ const getDepositCredit = async (userId) => {
     return { hasDeposit: false, creditAmount: 0, holdId: hold._id.toString() };
   }
 
+  // Total credit = security deposit + any advance amount paid
+  const totalCredit = hold.depositAmount + (hold.advanceAmount || 0);
+
   return {
     hasDeposit:   true,
-    creditAmount: hold.depositAmount,
+    creditAmount: totalCredit,
     holdId:       hold._id.toString(),
   };
 };
@@ -483,11 +517,13 @@ const getDepositOnlyStatus = async (userId) => {
 
   const { DEPOSIT_AMOUNT, REGISTRATION_FEE, TOTAL_DEPOSIT_PAYMENT } = await getDepositConstants();
   const isDepositOnly = hold.paymentMode === 'deposit';
+  const advance = hold.advanceAmount || 0;
 
   return {
     ...hold,
-    totalPaidAtDeposit:   isDepositOnly ? (hold.totalPaidAtDeposit || TOTAL_DEPOSIT_PAYMENT) : null,
-    refundableAmount:     isDepositOnly ? DEPOSIT_AMOUNT : hold.depositAmount,
+    advanceAmount:        advance,
+    totalPaidAtDeposit:   isDepositOnly ? (hold.totalPaidAtDeposit || TOTAL_DEPOSIT_PAYMENT + advance) : null,
+    refundableAmount:     isDepositOnly ? (DEPOSIT_AMOUNT + advance) : hold.depositAmount,
     nonRefundableAmount:  isDepositOnly ? REGISTRATION_FEE : 0,
   };
 };

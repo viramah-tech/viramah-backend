@@ -4,7 +4,7 @@ const express    = require('express');
 const rateLimit  = require('express-rate-limit');
 const { body, query } = require('express-validator');
 const { validate } = require('../../middleware/validate');
-const { protect } = require('../../middleware/auth');
+const { protect, optionalProtect } = require('../../middleware/auth');
 const { authorize } = require('../../middleware/roleAuth');
 const {
   calculatePreview,
@@ -34,6 +34,7 @@ const router = express.Router();
 // Rate limited to 10 req/min per IP.
 router.get(
   '/calculate-preview',
+  optionalProtect,
   previewLimiter,
   [
     query('roomTypeId').trim().notEmpty().withMessage('roomTypeId is required'),

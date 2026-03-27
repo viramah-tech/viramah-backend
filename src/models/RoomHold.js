@@ -67,6 +67,13 @@ const roomHoldSchema = new mongoose.Schema(
     totalPaidAtDeposit: { type: Number, default: 0 },
 
     /**
+     * Extra amount paid beyond the mandatory ₹16,000 (security + registration).
+     * Credited against the user's final full/half tenure payment.
+     * Always refundable — not subject to the 7-day forfeiture rule.
+     */
+    advanceAmount: { type: Number, default: 0, min: 0 },
+
+    /**
      * Set when user returns to complete full payment after a 'deposit' mode hold.
      * null until user selects 'full' or 'half' on the return payment page.
      */

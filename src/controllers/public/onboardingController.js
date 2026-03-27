@@ -26,6 +26,7 @@ const getStatus = async (req, res, next) => {
       selectedRoomType: user.roomTypeId ? user.roomTypeId.name : '', // for backward compat in frontend until updated
       roomNumber: user.roomNumber,
       messPackage: user.messPackage,
+      selectedAddOns: user.selectedAddOns || { transport: false, mess: false, messLumpSum: false },
       gender: user.gender,
       address: user.address,
       paymentStatus: user.paymentStatus,
@@ -128,7 +129,7 @@ const saveStep2 = async (req, res, next) => {
  */
 const saveStep3 = async (req, res, next) => {
   try {
-    const { roomTypeName, roomTypeId, messPackage } = req.body;
+    const { roomTypeName, roomTypeId, messPackage, transportEnabled } = req.body;
 
     // Validate roomType exists and has availability
     let roomTypeObj;
@@ -142,11 +143,17 @@ const saveStep3 = async (req, res, next) => {
 
     if (roomTypeObj.availableSeats <= 0) return error(res, 'No vacant beds available for this room type', 400);
 
+    // Derive add-on booleans from frontend selections
+    const isMessSelected = messPackage === 'full-board';
+    const isTransportSelected = transportEnabled === true || transportEnabled === 'true';
+
     const user = await User.findByIdAndUpdate(
       req.user._id,
       {
         roomTypeId: roomTypeObj._id,
         messPackage: messPackage || '',
+        'selectedAddOns.transport': isTransportSelected,
+        'selectedAddOns.mess': isMessSelected,
         onboardingStatus: 'in-progress',
       },
       { new: true, runValidators: true }
@@ -158,8 +165,9 @@ const saveStep3 = async (req, res, next) => {
       roomTypeId: user.roomTypeId,
       selectedRoomType: roomTypeObj.name,
       messPackage: user.messPackage,
+      selectedAddOns: user.selectedAddOns,
       onboardingStatus: user.onboardingStatus,
-    }, 'Step 3 saved — room type selected');
+    }, 'Step 3 saved — room type and add-ons selected');
   } catch (err) {
     next(err);
   }

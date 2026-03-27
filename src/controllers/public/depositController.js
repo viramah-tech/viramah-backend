@@ -14,7 +14,7 @@ const { success, error } = require('../../utils/apiResponse');
 const initiateDeposit = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { roomTypeId, paymentMode, transactionId, receiptUrl } = req.body;
+    const { roomTypeId, paymentMode, transactionId, receiptUrl, totalAmount } = req.body;
 
     if (!paymentMode) {
       return error(res, 'paymentMode is required ("full", "half", or "deposit")', 400);
@@ -24,18 +24,20 @@ const initiateDeposit = async (req, res) => {
       userId,
       roomTypeId,
       paymentMode,
-      { transactionId, receiptUrl }
+      { transactionId, receiptUrl, totalAmount: totalAmount ? Number(totalAmount) : undefined }
     );
 
     // For deposit-only mode, return explicit breakdown from PricingConfig
     let breakdown = null;
     if (paymentMode === 'deposit') {
       const cfg = await getPricingConfig();
+      const advance = hold.advanceAmount || 0;
       breakdown = {
         securityDeposit:     cfg.securityDeposit,
         registrationFee:     cfg.registrationFee,
-        totalPaidNow:        cfg.securityDeposit + cfg.registrationFee,
-        refundableAmount:    cfg.securityDeposit,
+        advanceAmount:       advance,
+        totalPaidNow:        hold.totalPaidAtDeposit,
+        refundableAmount:    cfg.securityDeposit + advance,
         nonRefundableAmount: cfg.registrationFee,
         isDepositOnly:       true,
       };

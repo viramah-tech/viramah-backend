@@ -12,7 +12,7 @@
  *     3. totalPerMonth  = discountedBase + gstAmount
  * - Security deposit and registration fee are FLAT charges (not discounted).
  *   They are included in installment 1 only.
- * - Transport and mess fees ARE discounted as part of the subtotal (per business spec).
+ * - Transport and mess fees are NOT discounted (flat rates, no discount applied).
  * - Referral deduction is applied AFTER all other calculations.
  */
 
@@ -132,19 +132,19 @@ const applyReferralCredit = async (referrerUserId, amount) => {
  *
  *   For 'full' mode:
  *     roomRentTotal = discountedMonthlyWithGST × tenureMonths
- *     transportTotal = Math.round(transportMonthly × (1 - discountRate)) × tenureMonths  [if selected]
- *     messTotal     = Math.round(messLumpSum × (1 - discountRate))                       [if lumpSum]
- *                   OR Math.round(messMonthly × (1 - discountRate)) × tenureMonths        [if monthly]
+ *     transportTotal = transportMonthly × tenureMonths  [if selected, no discount]
+ *     messTotal     = messLumpSum                       [if lumpSum, no discount]
+ *                   OR messMonthly × tenureMonths        [if monthly, no discount]
  *     subtotal      = roomRentTotal + transportTotal + messTotal
  *     finalAmount   = subtotal + flatFees - referralDeduction
  *
  *   For 'half' mode (installment 1 = 6 months, installment 2 = 5 months):
  *     inst1RoomTotal     = discountedMonthlyWithGST × installment1Months
  *     inst2RoomTotal     = discountedMonthlyWithGST × (tenureMonths - installment1Months)
- *     inst1TransportTotal = discountedMonthlyTransport × installment1Months
- *     inst2TransportTotal = discountedMonthlyTransport × (tenureMonths - installment1Months)
- *     inst1MessTotal     = discountedMonthlyMess × installment1Months
- *     inst2MessTotal     = discountedMonthlyMess × (tenureMonths - installment1Months)
+ *     inst1TransportTotal = transportMonthly × installment1Months              [no discount]
+ *     inst2TransportTotal = transportMonthly × (tenureMonths - installment1Months) [no discount]
+ *     inst1MessTotal     = messMonthly × installment1Months                    [no discount]
+ *     inst2MessTotal     = messMonthly × (tenureMonths - installment1Months)    [no discount]
  *     installment1 = inst1RoomTotal + inst1Transport + inst1Mess + flatFees - referralDeduction
  *     installment2 = inst2RoomTotal + inst2Transport + inst2Mess   (NO flat fees, NO referral)
  *
@@ -228,20 +228,11 @@ const calculatePayment = async ({
 
   const discountRate = paymentMode === 'full' ? discountFull : discountHalf;
 
-  // ── 4. Business rule: messLumpSum only valid for full payment mode ─────────
-  const { transport = false, mess = false, messLumpSum = false } = addOns;
-  if (messLumpSum && paymentMode === 'half') {
-    const err = new Error(
-      'Mess lump sum discount is only available for full payment mode.'
-    );
-    err.statusCode = 422;
-    throw err;
-  }
-  if (messLumpSum && !mess) {
-    const err = new Error('messLumpSum can only be true when mess add-on is selected.');
-    err.statusCode = 422;
-    throw err;
-  }
+  // ── 4. Business rule: mess with full mode = always lump sum ─────────────
+  const { transport = false, mess = false } = addOns;
+  // For full payment mode, mess always uses the lump sum price (₹19,000).
+  // The messLumpSum flag is auto-derived — frontend does not need to send it.
+  const messLumpSum = mess && paymentMode === 'full';
 
   // ── 5. Referral validation ────────────────────────────────────────────────
   let referrer = null;
@@ -263,18 +254,18 @@ const calculatePayment = async ({
   const monthlyGST               = Math.round(discountedMonthlyBase * gstRate);
   const discountedMonthlyWithGST = discountedMonthlyBase + monthlyGST;
 
-  // ── 7. Transport per-month (discounted, no GST) ────────────────────────────
-  const discountedMonthlyTransport = transport
-    ? Math.round(transportMonthly * (1 - discountRate))
-    : 0;
+  // ── 7. Transport per-month (NO discount, no GST) ───────────────────────────
+  const discountedMonthlyTransport = transport ? transportMonthly : 0;
 
-  // ── 8. Mess calculation ───────────────────────────────────────────────────
-  const discountedMonthlyMess = mess
-    ? Math.round(messMonthly * (1 - discountRate))
-    : 0;
+  // ── 8. Mess calculation (NO discount, no GST) ─────────────────────────────
+  const discountedMonthlyMess = mess ? messMonthly : 0;
 
   // ── 9. Flat fees (added to installment 1 only, not discounted) ────────────
-  const flatFees = registrationFee + securityDeposit;
+  // When user already paid via deposit mode, registration fee + security deposit
+  // were collected at that stage. Do NOT add them again — set flatFees to 0.
+  // The depositCredit (security + advance) is subtracted separately below.
+  const hasDepositCredit = depositCredit > 0;
+  const flatFees = hasDepositCredit ? 0 : (registrationFee + securityDeposit);
 
   // ── 10. Installment split ─────────────────────────────────────────────────
   let installment1, installment2;
@@ -286,7 +277,7 @@ const calculatePayment = async ({
     if (!mess) {
       messTotal = 0;
     } else if (messLumpSum) {
-      messTotal = Math.round(messLumpSumAmount * (1 - discountRate));
+      messTotal = messLumpSumAmount;  // No discount on mess lump sum
     } else {
       messTotal = discountedMonthlyMess * tenureMonths;
     }
@@ -306,11 +297,13 @@ const calculatePayment = async ({
       monthlyGST,
       discountedMonthlyWithGST,
       roomRentTotal,
-      registrationFee,
-      securityDeposit,
+      registrationFee: hasDepositCredit ? 0 : registrationFee,
+      securityDeposit: hasDepositCredit ? 0 : securityDeposit,
       transportMonthly: transport ? transportMonthly : 0,
+      discountedMonthlyTransport,
       transportTotal,
       messMonthly:    mess ? messMonthly : 0,
+      discountedMonthlyMess,
       messTotal,
       messIsLumpSum:  messLumpSum,
       discountRate,
@@ -352,11 +345,13 @@ const calculatePayment = async ({
       monthlyGST,
       discountedMonthlyWithGST,
       roomRentTotal:      inst1RoomTotal,
-      registrationFee,
-      securityDeposit,
+      registrationFee:     hasDepositCredit ? 0 : registrationFee,
+      securityDeposit:     hasDepositCredit ? 0 : securityDeposit,
       transportMonthly:   transport ? transportMonthly : 0,
+      discountedMonthlyTransport,
       transportTotal:     inst1TransportTotal,
       messMonthly:        mess ? messMonthly : 0,
+      discountedMonthlyMess,
       messTotal:          inst1MessTotal,
       messIsLumpSum:      false,
       discountRate,
@@ -378,8 +373,10 @@ const calculatePayment = async ({
       registrationFee:    0,
       securityDeposit:    0,
       transportMonthly:   transport ? transportMonthly : 0,
+      discountedMonthlyTransport,
       transportTotal:     inst2TransportTotal,
       messMonthly:        mess ? messMonthly : 0,
+      discountedMonthlyMess,
       messTotal:          inst2MessTotal,
       messIsLumpSum:      false,
       discountRate,

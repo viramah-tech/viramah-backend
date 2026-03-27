@@ -29,13 +29,13 @@ const pricingConfigSchema = new mongoose.Schema(
     transportMonthly: { type: Number, default: 2000, min: 0 },
 
     /** Monthly mess/lunch add-on rate — used when NOT opting for lump sum (no GST) */
-    messMonthly: { type: Number, default: 2000, min: 0 },
+    messMonthly: { type: Number, default: 2200, min: 0 },
 
     /**
      * Full-tenure mess lump sum (available ONLY for 'full' payment mode).
-     * Cheaper than paying monthly (₹2,000 × 11 = ₹22,000 vs ₹19,900 lump sum).
+     * Cheaper than paying monthly (₹2,200 × 11 = ₹24,200 vs ₹19,000 lump sum).
      */
-    messLumpSum: { type: Number, default: 19900, min: 0 },
+    messLumpSum: { type: Number, default: 19000, min: 0 },
 
     /** Discount rate for 'full' payment mode (applied to room + add-ons) */
     discountFull: { type: Number, default: 0.40, min: 0, max: 1 },

@@ -2,6 +2,7 @@
 
 const paymentService  = require('../../services/paymentService');
 const pricingService  = require('../../services/pricingService');
+const depositService  = require('../../services/depositService');
 const User            = require('../../models/User');
 const { success, error } = require('../../utils/apiResponse');
 const { emitToAdmins, emitToUser } = require('../../services/socketService');
@@ -61,7 +62,6 @@ const calculatePreview = async (req, res, next) => {
       paymentMode,
       transport    = 'false',
       mess         = 'false',
-      messLumpSum  = 'false',
       referralCode = null,
     } = req.query;
 
@@ -77,13 +77,8 @@ const calculatePreview = async (req, res, next) => {
     const addOns = {
       transport:   toBoolean(transport),
       mess:        toBoolean(mess),
-      messLumpSum: toBoolean(messLumpSum),
+      // messLumpSum is auto-derived by pricingService (full + mess = lump sum)
     };
-
-    // Business rule: messLumpSum invalid with half mode — return informational error
-    if (addOns.messLumpSum && paymentMode === 'half') {
-      return error(res, 'Mess lump sum is only available with full payment mode.', 422);
-    }
 
     // For preview, currentUserId can be null (no referral deduction applied in that case)
     const currentUserId = req.user?._id?.toString() || 'preview-user';
@@ -98,12 +93,20 @@ const calculatePreview = async (req, res, next) => {
       // If invalid, proceed without referral — preview still works
     }
 
+    // Check for active deposit credit — applies to preview so user sees correct amounts
+    let depositCredit = 0;
+    if (req.user?._id) {
+      const depositInfo = await depositService.getDepositCredit(req.user._id.toString());
+      depositCredit = depositInfo.creditAmount;
+    }
+
     const calc = await pricingService.calculatePayment({
       roomTypeId,
       paymentMode,
       addOns,
       referralCode: validatedReferralCode,
       currentUserId,
+      depositCredit,
     });
 
     return success(res, {
