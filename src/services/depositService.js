@@ -40,10 +40,17 @@ const auditLog = (event, data) =>
  *
  * @param {string} userId
  * @param {string} roomTypeId
+ * @param {string} paymentMode - 'full' | 'half' (locked at deposit, cannot change)
  * @param {{ transactionId: string, receiptUrl: string }} transactionDetails
  * @returns {Promise<RoomHold>}
  */
-const initiateDeposit = async (userId, roomTypeId, { transactionId, receiptUrl }) => {
+const initiateDeposit = async (userId, roomTypeId, paymentMode, { transactionId, receiptUrl }) => {
+  if (!['full', 'half'].includes(paymentMode)) {
+    const err = new Error('paymentMode must be "full" or "half".');
+    err.statusCode = 400;
+    throw err;
+  }
+
   // Check for existing active/pending hold — one per user
   const existing = await RoomHold.findOne({
     userId,
@@ -76,13 +83,14 @@ const initiateDeposit = async (userId, roomTypeId, { transactionId, receiptUrl }
   const hold = await RoomHold.create({
     userId,
     roomTypeId,
+    paymentMode,
     depositAmount:         DEPOSIT_AMOUNT,
     depositTransactionId:  transactionId || '',
     depositReceiptUrl:     receiptUrl    || '',
     status:                'pending_approval',
   });
 
-  auditLog('DEPOSIT_INITIATED', { userId, roomTypeId, holdId: hold._id });
+  auditLog('DEPOSIT_INITIATED', { userId, roomTypeId, paymentMode, holdId: hold._id });
 
   return hold;
 };

@@ -144,6 +144,24 @@ const userSchema = new mongoose.Schema(
     tenureStartDate: { type: Date, default: null },
     /** End date of the tenure (tenureStartDate + 11 months). */
     tenureEndDate:   { type: Date, default: null },
+
+    // ── Terms & Privacy Policy Consent ────────────────────────────────────────
+    /** Whether the user has explicitly accepted the Terms & Conditions. */
+    termsAccepted:            { type: Boolean, default: false },
+    /** Timestamp of terms acceptance. */
+    termsAcceptedAt:          { type: Date, default: null },
+    /** Version string of accepted terms (e.g. "v1.0" or "legacy" for migrated accounts). */
+    termsVersion:             { type: String, default: null },
+    /** Whether the user has explicitly accepted the Privacy Policy. */
+    privacyPolicyAccepted:    { type: Boolean, default: false },
+    /** Timestamp of privacy policy acceptance. */
+    privacyPolicyAcceptedAt:  { type: Date, default: null },
+    /** Version string of accepted privacy policy. */
+    privacyPolicyVersion:     { type: String, default: null },
+    /** IP address recorded at time of acceptance. */
+    acceptanceIp:             { type: String, default: null },
+    /** User-agent recorded at time of acceptance. */
+    acceptanceUserAgent:      { type: String, default: null },
   },
   {
     timestamps: true,

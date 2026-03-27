@@ -3,7 +3,7 @@ const { body } = require('express-validator');
 const { validate } = require('../../middleware/validate');
 const { protect } = require('../../middleware/auth');
 const { authorize } = require('../../middleware/roleAuth');
-const { register, login, logout, getMe } = require('../../controllers/public/authController');
+const { register, login, logout, getMe, acceptTerms } = require('../../controllers/public/authController');
 
 const router = express.Router();
 
@@ -47,5 +47,8 @@ router.post('/logout', logout);
 
 // GET /api/public/auth/me (protected - resident only)
 router.get('/me', protect, authorize('user'), getMe);
+
+// POST /api/public/auth/accept-terms (protected - record T&C + Privacy Policy acceptance)
+router.post('/accept-terms', protect, authorize('user'), acceptTerms);
 
 module.exports = router;

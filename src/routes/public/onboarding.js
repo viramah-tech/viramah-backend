@@ -3,6 +3,7 @@ const { body } = require('express-validator');
 const { validate } = require('../../middleware/validate');
 const { protect } = require('../../middleware/auth');
 const { authorize } = require('../../middleware/roleAuth');
+const requireTermsAccepted = require('../../middleware/requireTermsAccepted');
 const {
   getStatus,
   saveStep1,
@@ -15,8 +16,8 @@ const {
 
 const router = express.Router();
 
-// All onboarding routes require authenticated resident
-router.use(protect, authorize('user'));
+// All onboarding routes require authenticated resident who has accepted T&C
+router.use(protect, authorize('user'), requireTermsAccepted);
 
 // GET  /api/public/onboarding/status
 router.get('/status', getStatus);

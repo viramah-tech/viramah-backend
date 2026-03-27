@@ -41,6 +41,19 @@ const roomHoldSchema = new mongoose.Schema(
     depositReceiptUrl: { type: String, trim: true, default: '' },
 
     /**
+     * Payment mode chosen by the resident at deposit time.
+     * Locked here — cannot be changed after deposit submission.
+     * full = pay 11 months in one shot (40% discount)
+     * half = pay in 2 installments (25% discount)
+     */
+    paymentMode: {
+      type: String,
+      enum: ['full', 'half'],
+      required: true,
+      default: 'full',
+    },
+
+    /**
      * Set by admin on deposit approval — this is the clock start for all deadlines.
      * Never set during user-facing initiation.
      */

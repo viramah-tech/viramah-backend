@@ -131,10 +131,90 @@ const getMe = async (req, res, next) => {
     const userData = user.toObject();
     userData.roomType = userData.roomTypeId ? userData.roomTypeId.name : '';
     userData.selectedRoomType = userData.roomTypeId ? userData.roomTypeId.name : '';
+
+    // Agreements block — consumed by frontend route guard and profile page
+    userData.agreements = {
+      termsAccepted:          user.termsAccepted ?? false,
+      termsAcceptedAt:        user.termsAcceptedAt ?? null,
+      termsVersion:           user.termsVersion ?? null,
+      privacyPolicyAccepted:  user.privacyPolicyAccepted ?? false,
+      privacyPolicyAcceptedAt: user.privacyPolicyAcceptedAt ?? null,
+      privacyPolicyVersion:   user.privacyPolicyVersion ?? null,
+    };
+
+    // TODO (Print/PDF): When a printable onboarding summary is built, inject an
+    // "AGREEMENTS & CONSENTS" section here using userData.agreements.
+    // Format:
+    //   Terms & Conditions:  Accepted  (version: termsVersion, on: termsAcceptedAt, IP: acceptanceIp)
+    //   Privacy Policy:      Accepted  (version: privacyPolicyVersion, on: privacyPolicyAcceptedAt)
+    //   "This record confirms informed consent at time of onboarding."
+
     return success(res, userData, 'Profile fetched successfully');
   } catch (err) {
     next(err);
   }
 };
 
-module.exports = { register, login, logout, getMe };
+// ── Server-authoritative version constants ───────────────────────────────────
+const CURRENT_TERMS_VERSION   = 'v1.0';
+const CURRENT_PRIVACY_VERSION = 'v1.0';
+
+/**
+ * POST /api/public/auth/accept-terms
+ * Records the user's explicit acceptance of Terms & Conditions + Privacy Policy.
+ * Idempotent — if already accepted, returns { alreadyAccepted: true } with 200.
+ */
+const acceptTerms = async (req, res, next) => {
+  try {
+    const { termsVersion, privacyPolicyVersion } = req.body;
+
+    if (!termsVersion || !privacyPolicyVersion) {
+      return error(res, 'Both termsVersion and privacyPolicyVersion are required', 400);
+    }
+    if (termsVersion !== CURRENT_TERMS_VERSION) {
+      return error(res, `Invalid terms version. Expected "${CURRENT_TERMS_VERSION}"`, 400);
+    }
+    if (privacyPolicyVersion !== CURRENT_PRIVACY_VERSION) {
+      return error(res, `Invalid privacy policy version. Expected "${CURRENT_PRIVACY_VERSION}"`, 400);
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) return error(res, 'User not found', 404);
+
+    // Idempotent — already accepted
+    if (user.termsAccepted === true && user.privacyPolicyAccepted === true) {
+      return success(res, {
+        alreadyAccepted:  true,
+        acceptedAt:       user.termsAcceptedAt,
+        termsVersion:     user.termsVersion,
+        privacyPolicyVersion: user.privacyPolicyVersion,
+      }, 'Already accepted');
+    }
+
+    const now = new Date();
+    const ip  = req.ip || req.headers['x-forwarded-for'] || '';
+    const ua  = req.headers['user-agent'] || '';
+
+    user.termsAccepted           = true;
+    user.termsAcceptedAt         = now;
+    user.termsVersion            = termsVersion;
+    user.privacyPolicyAccepted   = true;
+    user.privacyPolicyAcceptedAt = now;
+    user.privacyPolicyVersion    = privacyPolicyVersion;
+    user.acceptanceIp            = ip;
+    user.acceptanceUserAgent     = ua;
+
+    await user.save();
+
+    return success(res, {
+      success:             true,
+      acceptedAt:          now,
+      termsVersion,
+      privacyPolicyVersion,
+    }, 'Terms accepted successfully');
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { register, login, logout, getMe, acceptTerms };

@@ -11,12 +11,17 @@ const { success, error } = require('../../utils/apiResponse');
  */
 const initiateDeposit = async (req, res) => {
   try {
-    const userId    = req.user._id;
-    const { roomTypeId, transactionId, receiptUrl } = req.body;
+    const userId = req.user._id;
+    const { roomTypeId, paymentMode, transactionId, receiptUrl } = req.body;
+
+    if (!paymentMode) {
+      return error(res, 'paymentMode is required ("full" or "half")', 400);
+    }
 
     const hold = await depositService.initiateDeposit(
       userId,
       roomTypeId,
+      paymentMode,
       { transactionId, receiptUrl }
     );
 
