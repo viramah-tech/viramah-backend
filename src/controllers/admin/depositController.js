@@ -39,12 +39,37 @@ const listDeposits = async (req, res) => {
         : null,
     }));
 
-    return success(res, 'Room holds retrieved.', {
+    return success(res, {
       holds: holdsWithComputed,
       pagination: { total, page: Number(page), limit: Number(limit) },
-    });
+    }, 'Room holds retrieved.');
   } catch (err) {
     return error(res, err.message, err.statusCode || 500);
+  }
+};
+
+// ── GET /api/admin/deposits/stats ─────────────────────────────────────────────
+/**
+ * Get aggregate statistics for the deposit dashboard.
+ */
+const getDepositStats = async (req, res) => {
+  try {
+    const [stats] = await RoomHold.aggregate([
+      {
+        $group: {
+          _id: null,
+          pending:   { $sum: { $cond: [{ $eq: ['$status', 'pending_approval'] }, 1, 0] } },
+          active:    { $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] } },
+          converted: { $sum: { $cond: [{ $eq: ['$status', 'converted'] }, 1, 0] } },
+          refunded:  { $sum: { $cond: [{ $eq: ['$status', 'refunded'] }, 1, 0] } },
+        },
+      },
+    ]);
+
+    const defaultStats = { pending: 0, active: 0, converted: 0, refunded: 0 };
+    return success(res, stats || defaultStats, 'Deposit statistics retrieved.');
+  } catch (err) {
+    return error(res, err.message, 500);
   }
 };
 
@@ -59,7 +84,7 @@ const approveDeposit = async (req, res) => {
 
     const hold = await depositService.approveDeposit(holdId, adminId);
 
-    return success(res, 'Deposit approved. Room is now held for the resident.', { hold });
+    return success(res, { hold }, 'Deposit approved. Room is now held for the resident.');
   } catch (err) {
     return error(res, err.message, err.statusCode || 500);
   }
@@ -99,10 +124,10 @@ const listRefundRequests = async (req, res) => {
       };
     });
 
-    return success(res, 'Refund requests retrieved.', {
-      refundRequests: recordsWithUrgency,
+    return success(res, {
+      requests: recordsWithUrgency,
       pagination: { total, page: Number(page), limit: Number(limit) },
-    });
+    }, 'Refund requests retrieved.');
   } catch (err) {
     return error(res, err.message, err.statusCode || 500);
   }
@@ -120,7 +145,7 @@ const approveRefund = async (req, res) => {
 
     const refundRecord = await depositService.approveRefund(refundId, adminId);
 
-    return success(res, 'Refund approved. Room released and ₹15,000 marked for refund.', { refundRecord });
+    return success(res, { refundRecord }, 'Refund approved. Room released and ₹15,000 marked for refund.');
   } catch (err) {
     return error(res, err.message, err.statusCode || 500);
   }
@@ -139,7 +164,7 @@ const rejectRefund = async (req, res) => {
 
     const refundRecord = await depositService.rejectRefund(refundId, adminId, reason);
 
-    return success(res, 'Refund request rejected.', { refundRecord });
+    return success(res, { refundRecord }, 'Refund request rejected.');
   } catch (err) {
     return error(res, err.message, err.statusCode || 500);
   }
@@ -153,7 +178,7 @@ const rejectRefund = async (req, res) => {
 const triggerExpireHolds = async (req, res) => {
   try {
     const count = await depositService.expireOverdueHolds();
-    return success(res, `Expired ${count} overdue hold(s).`, { expiredCount: count });
+    return success(res, { expiredCount: count }, `Expired ${count} overdue hold(s).`);
   } catch (err) {
     return error(res, err.message, err.statusCode || 500);
   }
@@ -161,6 +186,7 @@ const triggerExpireHolds = async (req, res) => {
 
 module.exports = {
   listDeposits,
+  getDepositStats,
   approveDeposit,
   listRefundRequests,
   approveRefund,

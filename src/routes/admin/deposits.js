@@ -7,6 +7,7 @@ const { protect }     = require('../../middleware/auth');
 const { authorize }   = require('../../middleware/roleAuth');
 const {
   listDeposits,
+  getDepositStats,
   approveDeposit,
   listRefundRequests,
   approveRefund,
@@ -18,6 +19,9 @@ const router = express.Router();
 
 // All admin deposit routes require admin auth
 router.use(protect, authorize('admin', 'accountant'));
+
+// ── GET /api/admin/deposits/stats ─────────────────────────────────────────────
+router.get('/stats', getDepositStats);
 
 // ── GET /api/admin/deposits ───────────────────────────────────────────────────
 router.get('/', listDeposits);
