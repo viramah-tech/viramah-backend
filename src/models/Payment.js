@@ -40,11 +40,6 @@ const paymentSchema = new mongoose.Schema(
       default: null,
     },
 
-    /**
-     * True when this Payment record represents the ₹16,000 deposit-only transaction
-     * (₹15,000 security + ₹1,000 registration fee). False for all normal payments.
-     */
-    depositOnly: { type: Boolean, default: false },
 
     /**
      * Due date for this payment.
@@ -73,12 +68,6 @@ const paymentSchema = new mongoose.Schema(
     },
     transactionId: { type: String, trim: true, default: '' },
     receiptUrl: { type: String, trim: true, default: '' },
-    verificationNotes: { type: String, trim: true, default: '' },
-    reviewedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-    },
-    reviewedAt: { type: Date },
 
     /**
      * Immutable price breakdown — set once when the Payment is created.
@@ -106,11 +95,7 @@ const paymentSchema = new mongoose.Schema(
       flatFees:             { type: Number, default: null }, // registrationFee + securityDeposit
       referralDeduction:    { type: Number, default: null },
       finalAmount:          { type: Number, default: null }, // = subtotal + flatFees - referralDeduction - depositCredited
-      depositCredited:      { type: Number, default: 0 },   // deposit already paid, credited here
-      // Deposit-only specific fields (populated only when depositOnly: true)
-      isDepositOnly:        { type: Boolean, default: false },
-      refundableAmount:     { type: Number, default: null }, // 15000 for deposit-only
-      nonRefundableAmount:  { type: Number, default: null }, // 1000 for deposit-only
+      depositCredited:      { type: Number, default: 0 },   // deposit already paid, credited against this payment
     },
   },
   {

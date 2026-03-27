@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Payment = require('../models/Payment');
 const Transaction = require('../models/Transaction');
+const RoomType = require('../models/RoomType');
 
 const getOverview = async () => {
   const [
@@ -12,7 +13,7 @@ const getOverview = async () => {
     recentUsers,
     recentPayments,
     onboardingAgg,
-    roomOccupancyAgg,
+    roomTypes,
   ] = await Promise.all([
     User.countDocuments(),
     User.countDocuments({ status: 'active' }),
@@ -34,10 +35,8 @@ const getOverview = async () => {
     User.aggregate([
       { $group: { _id: '$onboardingStatus', count: { $sum: 1 } } },
     ]),
-    User.aggregate([
-      { $match: { roomType: { $ne: '', $exists: true } } },
-      { $group: { _id: '$roomType', count: { $sum: 1 } } },
-    ]),
+    // Fix #4: query RoomType directly instead of the ghost field User.roomType
+    RoomType.find({ isActive: true }).select('name bookedSeats totalBeds availableSeats').lean(),
   ]);
 
   // Build onboarding stats
@@ -53,19 +52,12 @@ const getOverview = async () => {
     }
   });
 
-  // Build room occupancy stats
-  const roomOccupancy = {
-    'VIRAMAH Nexus': 0,
-    'VIRAMAH Axis': 0,
-    'VIRAMAH Collective': 0,
-    'VIRAMAH Axis+': 0,
-    totalOccupied: 0,
-  };
-  roomOccupancyAgg.forEach((item) => {
-    if (item._id && roomOccupancy.hasOwnProperty(item._id)) {
-      roomOccupancy[item._id] = item.count;
-    }
-    roomOccupancy.totalOccupied += item.count;
+  // Build room occupancy from RoomType documents (actual seat data)
+  const roomOccupancy = { totalOccupied: 0, totalBeds: 0 };
+  roomTypes.forEach((rt) => {
+    roomOccupancy[rt.name] = rt.bookedSeats || 0;
+    roomOccupancy.totalOccupied += rt.bookedSeats || 0;
+    roomOccupancy.totalBeds += rt.totalBeds || 0;
   });
 
   return {

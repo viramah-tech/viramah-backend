@@ -16,7 +16,6 @@ const connectDB = require('./src/config/db');
 const errorHandler = require('./src/middleware/errorHandler');
 const publicRoutes = require('./src/routes/public');
 const adminRoutes  = require('./src/routes/admin');
-const uploadRoutes = require('./src/routes/admin/upload');
 const { initializeSocket } = require('./src/services/socketService');
 const { seedPricingConfig } = require('./src/models/PricingConfig');
 
@@ -80,8 +79,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Mount routes
 app.use('/api/public', publicRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/admin/upload', uploadRoutes);
-
+// Note: admin upload routes are mounted inside adminRoutes index.js — no separate mount needed.
 // Root
 app.get('/', (req, res) => {
   res.json({ success: true, message: 'Viramah API Server', version: '1.0.0' });
@@ -134,6 +132,9 @@ const start = async () => {
 
 process.on('unhandledRejection', (err) => {
   console.error('Unhandled Rejection:', err);
+  // Exit to prevent the server from running in an undefined state.
+  // The process manager (PM2, Docker, etc.) will restart it.
+  process.exit(1);
 });
 
 start();

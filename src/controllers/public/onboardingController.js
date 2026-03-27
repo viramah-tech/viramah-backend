@@ -1,5 +1,6 @@
 const User = require('../../models/User');
 const RoomType = require('../../models/RoomType');
+const RoomHold = require('../../models/RoomHold');
 const { success, error } = require('../../utils/apiResponse');
 const { emitToAdmins, emitToUser } = require('../../services/socketService');
 
@@ -43,7 +44,7 @@ const getStatus = async (req, res, next) => {
  */
 const saveStep1 = async (req, res, next) => {
   try {
-    const { idProof, addressProof, photo, fullName, dateOfBirth, idType, idNumber } = req.body;
+    const { idProof, addressProof, photo, fullName, dateOfBirth, idType, idNumber, gender, address } = req.body;
 
     const updateFields = {
       'documents.idProof': idProof || '',
@@ -57,6 +58,8 @@ const saveStep1 = async (req, res, next) => {
     if (dateOfBirth) updateFields.dateOfBirth = dateOfBirth;
     if (idType) updateFields.idType = idType;
     if (idNumber) updateFields.idNumber = idNumber;
+    if (gender) updateFields.gender = gender;
+    if (address) updateFields.address = address;
 
     const user = await User.findByIdAndUpdate(
       req.user._id,
@@ -93,7 +96,7 @@ const saveStep2 = async (req, res, next) => {
     };
 
     // Persist alternate phone if provided
-    if (alternatePhone) updateFields.phone = phone; // primary stays on emergencyContact
+    if (alternatePhone) updateFields['emergencyContact.alternatePhone'] = alternatePhone;
 
     // Persist parent/guardian document info
     if (parentIdType) updateFields['parentDocuments.idType'] = parentIdType;
@@ -220,23 +223,38 @@ const confirmOnboarding = async (req, res, next) => {
     if (!user.address) missing.push('Address');
 
     if (missing.length > 0) {
-      return error(
-        res,
-        `Onboarding incomplete. Missing: ${missing.join(', ')}`,
-        400
-      );
+      // AUDIT FIX S4-2: Structured error with specific code and missing fields array.
+      // Frontend can detect errorCode=INCOMPLETE_PROFILE and redirect to step-1.
+      const responseBody = {
+        success: false,
+        message: `Onboarding incomplete. Missing: ${missing.join(', ')}`,
+        errorCode: 'INCOMPLETE_PROFILE',
+        missingFields: missing,
+      };
+      return res.status(400).json(responseBody);
     }
 
     user.onboardingStatus = 'completed';
     await user.save(); // validation for gender/address triggers here
 
-    // Convert temporary room hold into permanent occupancy
+    // Only increment bookedSeats if no deposit hold already reserved the seat.
+    // depositService.approveDeposit() already increments bookedSeats when a hold
+    // is approved, so we must NOT double-count.
     if (user.roomTypeId) {
-      const roomTypeObj = await RoomType.findById(user.roomTypeId);
-      if (roomTypeObj) {
-        roomTypeObj.bookedSeats += 1;
-        await roomTypeObj.save(); // this recalculates availableSeats
+      const existingHold = await RoomHold.findOne({
+        userId: user._id,
+        roomTypeId: user.roomTypeId,
+        status: { $in: ['active', 'converted'] },
+      });
+
+      if (!existingHold) {
+        // No deposit hold — this is a direct onboarding without deposit.
+        // Increment bookedSeats atomically.
+        await RoomType.findByIdAndUpdate(user.roomTypeId, {
+          $inc: { bookedSeats: 1 },
+        });
       }
+      // If existingHold exists, seat was already counted at deposit approval — skip.
     }
 
     // Emit real-time onboarding completion events
@@ -264,19 +282,6 @@ const confirmOnboarding = async (req, res, next) => {
   }
 };
 
-/**
- * GET /api/public/rooms/available
- * List all rooms with availability
- */
-const getAvailableRooms = async (req, res, next) => {
-  try {
-    const roomTypes = await RoomType.find({ isActive: true });
-    return success(res, { rooms: roomTypes }, 'Rooms fetched');
-  } catch (err) {
-    next(err);
-  }
-};
-
 module.exports = {
   getStatus,
   saveStep1,
@@ -284,5 +289,4 @@ module.exports = {
   saveStep3,
   saveStep4,
   confirmOnboarding,
-  getAvailableRooms,
 };

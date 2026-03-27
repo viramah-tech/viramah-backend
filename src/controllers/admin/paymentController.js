@@ -2,7 +2,6 @@
 
 const paymentService  = require('../../services/paymentService');
 const User            = require('../../models/User');
-const RoomType        = require('../../models/RoomType');
 const { success, error } = require('../../utils/apiResponse');
 const { emitToAdmins, emitToUser } = require('../../services/socketService');
 
@@ -98,7 +97,7 @@ const createPayment = async (req, res, next) => {
 
 /**
  * PATCH /api/admin/payments/:id/approve
- * Approves a pending payment and syncs User.paymentStatus.
+ * Approves a pending payment. User.paymentStatus sync is handled in paymentService.
  *
  * @route PATCH /api/admin/payments/:id/approve
  * @access Admin
@@ -107,24 +106,9 @@ const approvePayment = async (req, res, next) => {
   try {
     const payment = await paymentService.approvePayment(req.params.id, req.user._id);
 
-    // Sync paymentStatus to User model
+    // paymentService now handles User.paymentStatus sync.
     const userId = payment.userId?._id || payment.userId;
-    await User.findByIdAndUpdate(userId, { paymentStatus: 'approved' });
     const updatedUser = await User.findById(userId);
-
-    // Audit log
-    console.info(
-      JSON.stringify({
-        event:      'ADMIN_PAYMENT_APPROVED',
-        paymentId:  payment._id,
-        userId,
-        amount:     payment.amount,
-        installmentNumber: payment.installmentNumber,
-        approvedBy: req.user._id,
-        breakdown:  payment.breakdown || null,
-        timestamp:  new Date().toISOString(),
-      })
-    );
 
     emitToUser(userId.toString(), 'payment:updated', payment);
     emitToUser(userId.toString(), 'user:updated', updatedUser);
@@ -144,8 +128,7 @@ const approvePayment = async (req, res, next) => {
 
 /**
  * PATCH /api/admin/payments/:id/reject
- * Rejects a pending payment, resets the user's room booking state, and
- * decrements room occupancy.
+ * Rejects a pending payment. User state reset and room release are handled in paymentService.
  *
  * @route PATCH /api/admin/payments/:id/reject
  * @access Admin
@@ -155,25 +138,8 @@ const rejectPayment = async (req, res, next) => {
     const { remarks } = req.body;
     const payment = await paymentService.rejectPayment(req.params.id, remarks);
 
+    // paymentService now handles User state reset and room release.
     const userId = payment.userId?._id || payment.userId;
-    await User.findByIdAndUpdate(userId, { paymentStatus: 'rejected' });
-
-    // Release room hold and decrement occupancy on rejection
-    const rejectedUser = await User.findById(userId);
-    if (rejectedUser?.roomTypeId) {
-      const roomTypeObj = await RoomType.findById(rejectedUser.roomTypeId);
-      if (roomTypeObj) {
-        if (roomTypeObj.bookedSeats > 0) roomTypeObj.bookedSeats -= 1;
-        await roomTypeObj.save();
-      }
-      // Reset user's room booking state
-      rejectedUser.roomTypeId  = null;
-      rejectedUser.roomNumber  = '';
-      rejectedUser.roomType    = '';
-      rejectedUser.paymentMode = null;
-      await rejectedUser.save();
-    }
-
     const updatedUser = await User.findById(userId);
 
     emitToUser(userId.toString(), 'payment:updated', payment);

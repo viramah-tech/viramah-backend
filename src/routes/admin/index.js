@@ -5,6 +5,7 @@ const paymentRoutes  = require('./payments');
 const dashboardRoutes = require('./dashboard');
 const auditRoutes    = require('./audit');
 const depositRoutes  = require('./deposits');
+const uploadRoutes   = require('./upload');
 
 const router = express.Router();
 
@@ -14,5 +15,7 @@ router.use('/payments',  paymentRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/audit',     auditRoutes);
 router.use('/deposits',  depositRoutes);
+router.use('/upload',    uploadRoutes);
 
 module.exports = router;
+

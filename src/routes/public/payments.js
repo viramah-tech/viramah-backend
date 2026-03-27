@@ -8,6 +8,7 @@ const { protect } = require('../../middleware/auth');
 const { authorize } = require('../../middleware/roleAuth');
 const {
   calculatePreview,
+  getPricingConstants,
   initiatePayment,
   getMyPayments,
   getUpcomingInstallments,
@@ -58,6 +59,9 @@ router.get(
   validate,
   calculatePreview
 );
+
+// AUDIT FIX D-1: Public pricing constants — no auth needed
+router.get('/pricing-config', getPricingConstants);
 
 // ── Protected routes — require resident auth ───────────────────────────────────
 router.use(protect, authorize('user', 'resident'));

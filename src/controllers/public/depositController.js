@@ -1,11 +1,8 @@
 'use strict';
 
 const depositService = require('../../services/depositService');
+const { getPricingConfig } = require('../../services/pricingService');
 const { success, error } = require('../../utils/apiResponse');
-
-const DEPOSIT_AMOUNT    = 15000;
-const REGISTRATION_FEE  = 1000;
-const TOTAL_DEPOSIT     = 16000;
 
 // ── POST /api/public/deposits/initiate ────────────────────────────────────────
 /**
@@ -30,17 +27,19 @@ const initiateDeposit = async (req, res) => {
       { transactionId, receiptUrl }
     );
 
-    // For deposit-only mode, return explicit breakdown showing ₹15,000 + ₹1,000
-    const breakdown = paymentMode === 'deposit'
-      ? {
-          securityDeposit:     DEPOSIT_AMOUNT,
-          registrationFee:     REGISTRATION_FEE,
-          totalPaidNow:        TOTAL_DEPOSIT,
-          refundableAmount:    DEPOSIT_AMOUNT,
-          nonRefundableAmount: REGISTRATION_FEE,
-          isDepositOnly:       true,
-        }
-      : null;
+    // For deposit-only mode, return explicit breakdown from PricingConfig
+    let breakdown = null;
+    if (paymentMode === 'deposit') {
+      const cfg = await getPricingConfig();
+      breakdown = {
+        securityDeposit:     cfg.securityDeposit,
+        registrationFee:     cfg.registrationFee,
+        totalPaidNow:        cfg.securityDeposit + cfg.registrationFee,
+        refundableAmount:    cfg.securityDeposit,
+        nonRefundableAmount: cfg.registrationFee,
+        isDepositOnly:       true,
+      };
+    }
 
     return success(res, {
       hold,
@@ -73,8 +72,8 @@ const getDepositStatus = async (req, res) => {
 
 // ── POST /api/public/deposits/request-refund ──────────────────────────────────
 /**
- * Resident requests a refund of the SECURITY DEPOSIT ONLY (₹15,000).
- * The ₹1,000 registration fee is NEVER refundable — enforced server-side.
+ * Resident requests a refund of the SECURITY DEPOSIT ONLY.
+ * The registration fee is NEVER refundable — enforced server-side.
  */
 const requestRefund = async (req, res) => {
   try {
@@ -83,11 +82,14 @@ const requestRefund = async (req, res) => {
 
     const refundRecord = await depositService.requestRefund(userId, reason);
 
+    // Load amounts from PricingConfig for the response
+    const cfg = await getPricingConfig();
+
     return success(res, {
       refundRecord,
-      refundableAmount:    DEPOSIT_AMOUNT,
-      nonRefundableAmount: REGISTRATION_FEE,
-      notice: 'Only the ₹15,000 security deposit is refundable. The ₹1,000 registration fee is non-refundable under any circumstances.',
+      refundableAmount:    cfg.securityDeposit,
+      nonRefundableAmount: cfg.registrationFee,
+      notice: `Only the ₹${cfg.securityDeposit.toLocaleString('en-IN')} security deposit is refundable. The ₹${cfg.registrationFee.toLocaleString('en-IN')} registration fee is non-refundable under any circumstances.`,
     }, 'Refund request submitted. Admin will process it within 1-2 business days.');
   } catch (err) {
     return error(res, err.message, err.statusCode || 500);
@@ -95,3 +97,4 @@ const requestRefund = async (req, res) => {
 };
 
 module.exports = { initiateDeposit, getDepositStatus, requestRefund };
+

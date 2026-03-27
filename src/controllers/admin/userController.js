@@ -46,9 +46,42 @@ const createUser = async (req, res, next) => {
   }
 };
 
+// Field allowlist — ONLY these fields can be updated via PUT /api/admin/users/:id.
+// Sensitive fields (role, paymentStatus, password, onboardingStatus) are BLOCKED.
+const ALLOWED_UPDATE_FIELDS = [
+  'name', 'email', 'phone', 'dateOfBirth', 'gender', 'address',
+  'roomNumber', 'status',
+  'emergencyContact',
+];
+
+const BLOCKED_SENSITIVE_FIELDS = ['role', 'password', 'paymentStatus'];
+
 const updateUser = async (req, res, next) => {
   try {
-    const user = await userService.updateUser(req.params.id, req.body);
+    // Security: Log and block any attempt to change sensitive fields
+    for (const field of BLOCKED_SENSITIVE_FIELDS) {
+      if (req.body[field] !== undefined) {
+        console.warn(
+          `[SECURITY] Admin ${req.user._id} (${req.user.role}) attempted ` +
+          `to change ${field} of user ${req.params.id} to "${req.body[field]}" ` +
+          `via updateUser. Blocked by allowlist.`
+        );
+      }
+    }
+
+    // Build update object from allowlist only
+    const updateData = {};
+    for (const field of ALLOWED_UPDATE_FIELDS) {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return error(res, 'No valid fields provided for update', 400);
+    }
+
+    const user = await userService.updateUser(req.params.id, updateData);
     emitToUser(user._id.toString(), 'user:updated', user);
     emitToAdmins('user:updated', user);
     return success(res, user, 'User updated successfully');

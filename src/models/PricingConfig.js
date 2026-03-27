@@ -51,6 +51,10 @@ const pricingConfigSchema = new mongoose.Schema(
 
     /** Number of months in installment 1 (half-pay mode) */
     installment1Months: { type: Number, default: 6, min: 1 },
+
+    /** Current T&C and Privacy Policy versions (avoid hardcoding in controllers) */
+    currentTermsVersion:   { type: String, default: 'v1.0' },
+    currentPrivacyVersion: { type: String, default: 'v1.0' },
   },
   {
     timestamps: true,

@@ -4,6 +4,7 @@ const { validate } = require('../../middleware/validate');
 const { protect } = require('../../middleware/auth');
 const { authorize } = require('../../middleware/roleAuth');
 const requireTermsAccepted = require('../../middleware/requireTermsAccepted');
+const { validateIdNumber } = require('../../utils/idValidators');
 const {
   getStatus,
   saveStep1,
@@ -11,7 +12,6 @@ const {
   saveStep3,
   saveStep4,
   confirmOnboarding,
-  getAvailableRooms,
 } = require('../../controllers/public/onboardingController');
 
 const router = express.Router();
@@ -41,16 +41,7 @@ router.patch(
         return true;
       }),
     body('idType').optional().isIn(['aadhaar', 'passport', 'driving_license', 'voter_id']).withMessage('Invalid ID type'),
-    body('idNumber').optional().trim().notEmpty().custom((value, { req }) => {
-      const type = req.body.idType;
-      if (!type) return true;
-      const cleanVal = value.replace(/\s/g, "");
-      if (type === 'aadhaar' && !/^\d{12}$/.test(cleanVal)) throw new Error('Aadhaar must be exactly 12 numeric digits');
-      if (type === 'passport' && !/^[A-Z0-9]{8,9}$/.test(value)) throw new Error('Passport must be 8-9 uppercase alphanumeric characters');
-      if (type === 'driving_license' && !/^[A-Z0-9]{15,16}$/.test(value)) throw new Error('Driving License must be 15-16 uppercase alphanumeric characters');
-      if (type === 'voter_id' && !/^[A-Z0-9]{10}$/.test(value)) throw new Error('Voter ID must be exactly 10 uppercase alphanumeric characters');
-      return true;
-    })
+    body('idNumber').optional().trim().notEmpty().custom(validateIdNumber('idType')),
   ],
   validate,
   saveStep1
@@ -75,16 +66,7 @@ router.patch(
         return true;
       }),
     body('parentIdType').optional().isIn(['aadhaar', 'passport', 'driving_license', 'voter_id']).withMessage('Invalid Parent ID type'),
-    body('parentIdNumber').optional().trim().notEmpty().custom((value, { req }) => {
-      const type = req.body.parentIdType;
-      if (!type) return true;
-      const cleanVal = value.replace(/\s/g, "");
-      if (type === 'aadhaar' && !/^\d{12}$/.test(cleanVal)) throw new Error('Aadhaar must be exactly 12 numeric digits');
-      if (type === 'passport' && !/^[A-Z0-9]{8,9}$/.test(value)) throw new Error('Passport must be 8-9 uppercase alphanumeric characters');
-      if (type === 'driving_license' && !/^[A-Z0-9]{15,16}$/.test(value)) throw new Error('Driving License must be 15-16 uppercase alphanumeric characters');
-      if (type === 'voter_id' && !/^[A-Z0-9]{10}$/.test(value)) throw new Error('Voter ID must be exactly 10 uppercase alphanumeric characters');
-      return true;
-    })
+    body('parentIdNumber').optional().trim().notEmpty().custom(validateIdNumber('parentIdType')),
   ],
   validate,
   saveStep2
@@ -110,7 +92,5 @@ router.patch(
 // POST /api/public/onboarding/confirm
 router.post('/confirm', confirmOnboarding);
 
-// GET /api/public/rooms/available  (also protected, resident must be logged in)
-router.get('/rooms', getAvailableRooms);
-
 module.exports = router;
+

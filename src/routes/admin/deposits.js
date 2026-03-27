@@ -5,6 +5,7 @@ const { param, body } = require('express-validator');
 const { validate }    = require('../../middleware/validate');
 const { protect }     = require('../../middleware/auth');
 const { authorize }   = require('../../middleware/roleAuth');
+const { auditLog }    = require('../../middleware/requestLogger');
 const {
   listDeposits,
   getDepositStats,
@@ -41,6 +42,7 @@ router.patch(
     param('holdId').isMongoId().withMessage('holdId must be a valid ID'),
   ],
   validate,
+  auditLog('APPROVE_DEPOSIT', 'deposit'),
   approveDeposit
 );
 
@@ -51,6 +53,7 @@ router.patch(
     param('refundId').isMongoId().withMessage('refundId must be a valid ID'),
   ],
   validate,
+  auditLog('APPROVE_REFUND', 'refund'),
   approveRefund
 );
 
@@ -62,6 +65,7 @@ router.patch(
     body('reason').optional({ nullable: true }).trim().isLength({ max: 500 }),
   ],
   validate,
+  auditLog('REJECT_REFUND', 'refund'),
   rejectRefund
 );
 

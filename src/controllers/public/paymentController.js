@@ -6,6 +6,42 @@ const User            = require('../../models/User');
 const { success, error } = require('../../utils/apiResponse');
 const { emitToAdmins, emitToUser } = require('../../services/socketService');
 
+// ── AUDIT FIX D-1: Public Pricing Constants ──────────────────────────────────
+
+/**
+ * GET /api/public/payments/pricing-config
+ * Returns all public-facing pricing constants from PricingConfig model.
+ * No auth required — needed during onboarding for dynamic deposit display.
+ *
+ * @route GET /api/public/payments/pricing-config
+ * @access Public (no auth)
+ */
+const getPricingConstants = async (req, res, next) => {
+  try {
+    const config = await pricingService.getPricingConfig();
+    if (!config) {
+      return error(res, 'Pricing configuration not available', 503);
+    }
+
+    // Return only what frontend needs — never expose admin-only fields
+    return success(res, {
+      securityDeposit:    config.securityDeposit,
+      registrationFee:    config.registrationFee,
+      totalDepositPayment: config.securityDeposit + config.registrationFee,
+      transportMonthly:   config.transportMonthly,
+      messMonthly:        config.messMonthly,
+      messLumpSum:        config.messLumpSum,
+      discountFull:       config.discountFull,
+      discountHalf:       config.discountHalf,
+      referralBonus:      config.referralBonus,
+      tenureMonths:       config.tenureMonths,
+      gstRate:            config.gstRate ?? 0.12,
+    }, 'Pricing config fetched');
+  } catch (err) {
+    next(err);
+  }
+};
+
 // ── Calculate Preview (GET, rate-limited, auth-optional) ─────────────────────
 
 /**
@@ -244,6 +280,7 @@ const validateReferral = async (req, res, next) => {
 
 module.exports = {
   calculatePreview,
+  getPricingConstants,
   initiatePayment,
   getMyPayments,
   getUpcomingInstallments,

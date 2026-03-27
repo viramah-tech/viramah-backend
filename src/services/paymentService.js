@@ -137,6 +137,17 @@ const initiatePayment = async (
     throw err;
   }
 
+  // AUDIT FIX C-2: Validate onboarding is completed before payment initiation.
+  // Prevents payment submission if user bypasses step-4 (confirmOnboarding).
+  if (user.onboardingStatus !== 'completed') {
+    const err = new Error(
+      'Onboarding must be completed before initiating payment. ' +
+      `Current status: ${user.onboardingStatus}`
+    );
+    err.statusCode = 422;
+    throw err;
+  }
+
   // Check for existing pending payment — prevent duplicates
   const existingPending = await Payment.findOne({ userId, status: 'pending' });
   if (existingPending) {
@@ -215,6 +226,7 @@ const initiatePayment = async (
   });
 
   // ── Create installment 1 Transaction ─────────────────────────────────────
+  // Transaction references Payment via paymentId — no need to duplicate breakdown.
   await Transaction.create({
     paymentId:         payment._id,
     userId,
@@ -224,17 +236,6 @@ const initiatePayment = async (
     description:       inst1Desc,
     status:            'pending',
     installmentNumber: 1,
-    breakdown: {
-      roomRentTotal:     breakdown.roomRentTotal,
-      registrationFee:   breakdown.registrationFee,
-      securityDeposit:   breakdown.securityDeposit,
-      transportTotal:    breakdown.transportTotal,
-      messTotal:         breakdown.messTotal,
-      discountRate:      breakdown.discountRate,
-      gstRate:           breakdown.gstRate,
-      referralDeduction: breakdown.referralDeduction,
-      finalAmount:       breakdown.finalAmount,
-    },
   });
 
   // ── Pre-create installment 2 (upcoming) for half-pay ─────────────────────
@@ -318,12 +319,16 @@ const approvePayment = async (id, approvedByUserId) => {
   payment.approvedBy = approvedByUserId;
   await payment.save();
 
+  // Sync paymentStatus on User (Fix #10: lifecycle managed in service layer)
+  const userId = payment.userId;
+  await User.findByIdAndUpdate(userId, { paymentStatus: 'approved' });
+
   // Audit log
   console.info(
     JSON.stringify({
       event:     'PAYMENT_APPROVED',
       paymentId: payment._id,
-      userId:    payment.userId,
+      userId,
       amount:    payment.amount,
       approvedBy: approvedByUserId,
       breakdown: payment.breakdown || null,
@@ -354,6 +359,24 @@ const rejectPayment = async (id, remarks) => {
   payment.status  = 'rejected';
   payment.remarks = remarks || '';
   await payment.save();
+
+  // Sync paymentStatus on User and release room (Fix #10 + #12: lifecycle in service layer)
+  const userId = payment.userId;
+  await User.findByIdAndUpdate(userId, { paymentStatus: 'rejected' });
+
+  const RoomType = require('../models/RoomType');
+  const rejectedUser = await User.findById(userId);
+  if (rejectedUser?.roomTypeId) {
+    // Release room hold and decrement occupancy atomically
+    await RoomType.findByIdAndUpdate(rejectedUser.roomTypeId, {
+      $inc: { bookedSeats: -1 },
+    });
+    // Reset user's room booking state (no ghost field writes)
+    rejectedUser.roomTypeId  = null;
+    rejectedUser.roomNumber  = '';
+    rejectedUser.paymentMode = null;
+    await rejectedUser.save();
+  }
 
   await payment.populate('userId', 'userId name email');
   return payment;

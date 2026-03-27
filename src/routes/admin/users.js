@@ -103,9 +103,10 @@ router.post(
   changeUserPassword
 );
 
-// DELETE /:id - Delete user (admin only)
+// DELETE /:id - Delete user (admin only — accountants cannot delete)
 router.delete(
   '/:id',
+  authorize('admin'),
   auditLog('DELETE_USER', 'user'),
   deleteUser
 );

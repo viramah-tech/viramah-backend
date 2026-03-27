@@ -16,12 +16,23 @@ const RoomHold    = require('../models/RoomHold');
 const RefundRecord = require('../models/RefundRecord');
 const RoomType    = require('../models/RoomType');
 const User        = require('../models/User');
+const { getPricingConfig } = require('./pricingService');
 
-const DEPOSIT_AMOUNT        = 15000; // Security deposit. Server-side constant. NEVER from request.
-const REGISTRATION_FEE      = 1000;  // Non-refundable registration fee. Server-side constant.
-const TOTAL_DEPOSIT_PAYMENT = 16000; // = DEPOSIT_AMOUNT + REGISTRATION_FEE
 const REFUND_WINDOW_DAYS    = 7;
 const PAYMENT_WINDOW_DAYS   = 21;
+
+/**
+ * Loads deposit-related constants from PricingConfig (cached 60s).
+ * This is the single source of truth — NO hardcoded amounts.
+ */
+const getDepositConstants = async () => {
+  const cfg = await getPricingConfig();
+  return {
+    DEPOSIT_AMOUNT:        cfg.securityDeposit,     // ₹15,000
+    REGISTRATION_FEE:      cfg.registrationFee,     // ₹1,000
+    TOTAL_DEPOSIT_PAYMENT: cfg.securityDeposit + cfg.registrationFee, // ₹16,000
+  };
+};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -82,7 +93,18 @@ const initiateDeposit = async (userId, roomTypeId, paymentMode, { transactionId,
     throw err;
   }
 
-  // For deposit-only mode: store the ₹1,000 registration fee and total paid now as server-side constants.
+  // AUDIT FIX C-2: Validate onboarding is completed before deposit initiation.
+  const depositUser = await User.findById(userId).lean();
+  if (depositUser && depositUser.onboardingStatus !== 'completed') {
+    const err = new Error('Please complete your profile before making a deposit.');
+    err.statusCode = 422;
+    throw err;
+  }
+
+  // Load deposit constants from PricingConfig (single source of truth)
+  const { DEPOSIT_AMOUNT, REGISTRATION_FEE, TOTAL_DEPOSIT_PAYMENT } = await getDepositConstants();
+
+  // For deposit-only mode: store the registration fee and total paid as server-side constants.
   const isDepositOnly = paymentMode === 'deposit';
 
   const hold = await RoomHold.create({
@@ -459,6 +481,7 @@ const getDepositOnlyStatus = async (userId) => {
   const hold = await getHoldStatus(userId);
   if (!hold) return null;
 
+  const { DEPOSIT_AMOUNT, REGISTRATION_FEE, TOTAL_DEPOSIT_PAYMENT } = await getDepositConstants();
   const isDepositOnly = hold.paymentMode === 'deposit';
 
   return {

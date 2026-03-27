@@ -1,4 +1,6 @@
 const User = require('../../models/User');
+const { getPricingConfig } = require('../../services/pricingService');
+const { attachRoomTypeName } = require('../../utils/attachRoomType');
 const { success, error } = require('../../utils/apiResponse');
 
 /**
@@ -15,20 +17,42 @@ const register = async (req, res, next) => {
       return error(res, 'An account with this email address already exists. Please log in instead.', 409);
     }
 
-    // Auto-generate userId (e.g., RES000001)
-    const count = await User.countDocuments();
-    const userId = `RES${String(count + 1).padStart(6, '0')}`;
+    // Auto-generate userId with retry loop.
+    // Uses MongoDB's unique index on userId as the atomicity guard.
+    // If a concurrent registration creates a collision (11000 on userId),
+    // we retry with an incremented counter (up to 5 attempts).
+    const MAX_RETRIES = 5;
+    let user;
 
-    const user = await User.create({
-      userId,
-      name,
-      email: email.toLowerCase(),
-      phone: phone || '',
-      password,
-      role: 'user',
-      status: 'active',
-      onboardingStatus: 'pending',
-    });
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const count = await User.countDocuments();
+        const userId = `RES${String(count + 1 + attempt).padStart(6, '0')}`;
+
+        user = await User.create({
+          userId,
+          name,
+          email: email.toLowerCase(),
+          phone: phone || '',
+          password,
+          role: 'user',
+          status: 'active',
+          onboardingStatus: 'pending',
+        });
+        break; // Success — exit the retry loop
+      } catch (createErr) {
+        // Only retry on userId collision (11000 on userId field)
+        const isUserIdCollision =
+          createErr.code === 11000 &&
+          createErr.keyPattern &&
+          createErr.keyPattern.userId;
+
+        if (!isUserIdCollision || attempt === MAX_RETRIES - 1) {
+          throw createErr; // Re-throw non-userId errors or final attempt failure
+        }
+        // userId collision — retry with incremented counter
+      }
+    }
 
     const token = user.generateAuthToken();
 
@@ -54,7 +78,6 @@ const register = async (req, res, next) => {
     );
   } catch (err) {
     if (err.code === 11000) {
-      // Determine which field caused the duplicate key violation
       const field = err.keyPattern ? Object.keys(err.keyPattern)[0] : 'email';
       const message = field === 'email'
         ? 'An account with this email address already exists. Please log in instead.'
@@ -108,8 +131,7 @@ const login = async (req, res, next) => {
 
     const userData = user.toObject();
     delete userData.password;
-    userData.roomType = userData.roomTypeId ? userData.roomTypeId.name : '';
-    userData.selectedRoomType = userData.roomTypeId ? userData.roomTypeId.name : '';
+    attachRoomTypeName(userData);
 
     return success(res, { token, user: userData }, 'Login successful');
   } catch (err) {
@@ -136,8 +158,7 @@ const getMe = async (req, res, next) => {
       return error(res, 'User not found', 404);
     }
     const userData = user.toObject();
-    userData.roomType = userData.roomTypeId ? userData.roomTypeId.name : '';
-    userData.selectedRoomType = userData.roomTypeId ? userData.roomTypeId.name : '';
+    attachRoomTypeName(userData);
 
     // Agreements block — consumed by frontend route guard and profile page
     userData.agreements = {
@@ -162,10 +183,6 @@ const getMe = async (req, res, next) => {
   }
 };
 
-// ── Server-authoritative version constants ───────────────────────────────────
-const CURRENT_TERMS_VERSION   = 'v1.0';
-const CURRENT_PRIVACY_VERSION = 'v1.0';
-
 /**
  * POST /api/public/auth/accept-terms
  * Records the user's explicit acceptance of Terms & Conditions + Privacy Policy.
@@ -178,6 +195,12 @@ const acceptTerms = async (req, res, next) => {
     if (!termsVersion || !privacyPolicyVersion) {
       return error(res, 'Both termsVersion and privacyPolicyVersion are required', 400);
     }
+
+    // Load current versions from PricingConfig (Fix #15: not hardcoded)
+    const cfg = await getPricingConfig();
+    const CURRENT_TERMS_VERSION   = cfg.currentTermsVersion   || 'v1.0';
+    const CURRENT_PRIVACY_VERSION = cfg.currentPrivacyVersion || 'v1.0';
+
     if (termsVersion !== CURRENT_TERMS_VERSION) {
       return error(res, `Invalid terms version. Expected "${CURRENT_TERMS_VERSION}"`, 400);
     }

@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const { attachRoomTypeName } = require('../utils/attachRoomType');
 
 const getUsers = async ({ page = 1, limit = 10, role, status, onboardingStatus }) => {
   const query = {};
@@ -20,7 +21,7 @@ const getUsers = async ({ page = 1, limit = 10, role, status, onboardingStatus }
 
   const processedUsers = users.map(u => {
     const obj = u.toObject ? u.toObject() : u;
-    obj.roomType = obj.roomTypeId ? obj.roomTypeId.name : '';
+    attachRoomTypeName(obj);
     return obj;
   });
 
@@ -73,7 +74,7 @@ const getUserById = async (id) => {
     throw err;
   }
   const obj = user.toObject();
-  obj.roomType = obj.roomTypeId ? obj.roomTypeId.name : '';
+  attachRoomTypeName(obj);
   return obj;
 };
 
@@ -143,7 +144,9 @@ const changePassword = async (id, newPassword) => {
 };
 
 const searchUsers = async (query, { page = 1, limit = 10 }) => {
-  const searchRegex = new RegExp(query, 'i');
+  // Escape regex metacharacters to prevent ReDoS attacks
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const searchRegex = new RegExp(escaped, 'i');
   const filter = {
     $or: [
       { name: searchRegex },
@@ -166,7 +169,7 @@ const searchUsers = async (query, { page = 1, limit = 10 }) => {
 
   const processedUsers = users.map(u => {
     const obj = u.toObject ? u.toObject() : u;
-    obj.roomType = obj.roomTypeId ? obj.roomTypeId.name : '';
+    attachRoomTypeName(obj);
     return obj;
   });
 
@@ -194,7 +197,7 @@ const exportUsers = async ({ role, status, onboardingStatus }) => {
     .lean();
 
   return users.map(u => {
-    u.roomType = u.roomTypeId ? u.roomTypeId.name : '';
+    attachRoomTypeName(u);
     return u;
   });
 };
@@ -211,10 +214,29 @@ const deleteUser = async (id) => {
     err.statusCode = 403;
     throw err;
   }
+
+  // Release room occupancy if user had a booked seat
+  if (user.roomTypeId) {
+    const RoomType = require('../models/RoomType');
+    await RoomType.findByIdAndUpdate(user.roomTypeId, {
+      $inc: { bookedSeats: -1 },
+    });
+  }
+
+  // Clean up ALL associated records
+  const Payment     = require('../models/Payment');
+  const Transaction = require('../models/Transaction');
+  const RoomHold    = require('../models/RoomHold');
+  const RefundRecord = require('../models/RefundRecord');
+
+  await Promise.all([
+    Payment.deleteMany({ userId: id }),
+    Transaction.deleteMany({ userId: id }),
+    RoomHold.deleteMany({ userId: id }),
+    RefundRecord.deleteMany({ userId: id }),
+  ]);
+
   await User.findByIdAndDelete(id);
-  // Clean up associated payments
-  const Payment = require('../models/Payment');
-  await Payment.deleteMany({ userId: id });
   return { deleted: true, userId: user.userId };
 };
 
