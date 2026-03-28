@@ -119,20 +119,34 @@ const register = async (req, res, next) => {
   }
 };
 
+// ── Account lockout config ─────────────────────────────────────────────────
+const MAX_LOGIN_ATTEMPTS = 10;
+const LOCK_DURATION_MS   = 15 * 60 * 1000; // 15 minutes
+
 /**
  * POST /api/public/auth/login
- * Login for residents
+ * Login for residents — with account lockout and security logging
  */
 const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || 'unknown';
 
     const user = await User.findOne({ email: email.toLowerCase(), role: { $in: ['user', 'resident'] } })
       .select('+password')
       .populate('roomTypeId', 'name');
 
     if (!user) {
+      console.warn(`[SECURITY] Failed login — unknown email: ${email.toLowerCase()} | IP: ${clientIp}`);
       return error(res, 'Invalid email or password', 401);
+    }
+
+    // ── Account lockout check ──────────────────────────────────────────────
+    if (user.lockUntil && user.lockUntil > new Date()) {
+      const remainingMs = user.lockUntil.getTime() - Date.now();
+      const remainingMin = Math.ceil(remainingMs / 60000);
+      console.warn(`[SECURITY] Login blocked — account locked: ${email.toLowerCase()} | IP: ${clientIp} | unlocks in ${remainingMin}min`);
+      return error(res, `Account is temporarily locked. Try again in ${remainingMin} minute${remainingMin === 1 ? '' : 's'}.`, 423);
     }
 
     if (user.status !== 'active') {
@@ -141,10 +155,23 @@ const login = async (req, res, next) => {
 
     const isMatch = await user.matchPassword(password);
     if (!isMatch) {
+      // Increment failed attempts
+      user.loginAttempts = (user.loginAttempts || 0) + 1;
+      console.warn(`[SECURITY] Failed login — wrong password: ${email.toLowerCase()} | IP: ${clientIp} | attempt ${user.loginAttempts}/${MAX_LOGIN_ATTEMPTS}`);
+
+      // Lock account if max attempts exceeded
+      if (user.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
+        user.lockUntil = new Date(Date.now() + LOCK_DURATION_MS);
+        console.warn(`[SECURITY] Account LOCKED: ${email.toLowerCase()} | IP: ${clientIp} | locked for 15 minutes`);
+      }
+      await user.save();
+
       return error(res, 'Invalid email or password', 401);
     }
 
-    // Update last login
+    // ── Successful login — reset lockout counters ──────────────────────────
+    user.loginAttempts = 0;
+    user.lockUntil = null;
     user.lastLogin = new Date();
     await user.save();
 
@@ -160,6 +187,8 @@ const login = async (req, res, next) => {
 
     const userData = user.toObject();
     delete userData.password;
+    delete userData.loginAttempts;
+    delete userData.lockUntil;
     attachRoomTypeName(userData);
 
     return success(res, { token, user: userData }, 'Login successful');
@@ -205,6 +234,14 @@ const getMe = async (req, res, next) => {
     //   Terms & Conditions:  Accepted  (version: termsVersion, on: termsAcceptedAt, IP: acceptanceIp)
     //   Privacy Policy:      Accepted  (version: privacyPolicyVersion, on: privacyPolicyAcceptedAt)
     //   "This record confirms informed consent at time of onboarding."
+
+    // Verification block — consumed by verify-contact page and route guards
+    userData.verification = {
+      emailVerified:   user.emailVerified ?? false,
+      emailVerifiedAt: user.emailVerifiedAt ?? null,
+      phoneVerified:   user.phoneVerified ?? false,
+      phoneVerifiedAt: user.phoneVerifiedAt ?? null,
+    };
 
     return success(res, userData, 'Profile fetched successfully');
   } catch (err) {

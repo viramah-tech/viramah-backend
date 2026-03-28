@@ -7,6 +7,7 @@ const uploadRoutes   = require('./upload');
 const roomRoutes     = require('./rooms');
 const referralRoutes = require('./referral');
 const depositRoutes  = require('./deposits');
+const verificationRoutes = require('./verification');
 const { success } = require('../../utils/apiResponse');
 
 const router = express.Router();
@@ -42,5 +43,8 @@ router.use('/referral', referralRoutes);
 
 // Room deposit & hold policy (Phase 1.5)
 router.use('/deposits', depositRoutes);
+
+// Contact verification (email + phone OTP)
+router.use('/verification', verificationRoutes);
 
 module.exports = router;

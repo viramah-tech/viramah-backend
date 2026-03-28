@@ -145,6 +145,25 @@ const userSchema = new mongoose.Schema(
     /** End date of the tenure (tenureStartDate + 11 months). */
     tenureEndDate:   { type: Date, default: null },
 
+    // ── Contact Verification ──────────────────────────────────────────────────
+    emailVerified:        { type: Boolean, default: false },
+    emailVerifiedAt:      { type: Date, default: null },
+    emailOtp:             { type: String, default: null },
+    emailOtpExpiresAt:    { type: Date, default: null },
+    emailOtpAttempts:     { type: Number, default: 0 },
+
+    phoneVerified:        { type: Boolean, default: false },
+    phoneVerifiedAt:      { type: Date, default: null },
+    phoneOtp:             { type: String, default: null },
+    phoneOtpExpiresAt:    { type: Date, default: null },
+    phoneOtpAttempts:     { type: Number, default: 0 },
+
+    // ── Account Lockout (Brute-Force Protection) ──────────────────────────────
+    /** Number of consecutive failed login attempts. Reset on successful login. */
+    loginAttempts:            { type: Number, default: 0 },
+    /** Account is locked until this timestamp. Null = not locked. */
+    lockUntil:                { type: Date, default: null },
+
     // ── Terms & Privacy Policy Consent ────────────────────────────────────────
     /** Whether the user has explicitly accepted the Terms & Conditions. */
     termsAccepted:            { type: Boolean, default: false },
