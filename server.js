@@ -136,9 +136,12 @@ const start = async () => {
     console.log(`${signal} received. Shutting down gracefully...`);
     server.close(() => {
       const mongoose = require('mongoose');
-      mongoose.connection.close(false, () => {
+      mongoose.connection.close(false).then(() => {
         console.log('Database connection closed.');
         process.exit(0);
+      }).catch((err) => {
+        console.error('Error closing database:', err);
+        process.exit(1);
       });
     });
     setTimeout(() => {
