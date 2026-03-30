@@ -4,6 +4,9 @@ const paymentService  = require('../../services/paymentService');
 const User            = require('../../models/User');
 const { success, error } = require('../../utils/apiResponse');
 const { emitToAdmins, emitToUser } = require('../../services/socketService');
+const { sendEmail } = require('../../services/emailService');
+const { generateReceiptPdf } = require('../../services/pdfService');
+const { buildPaymentReceiptEmailHtml } = require('../../templates/paymentReceiptEmail');
 
 // ── Get Payments (listing with filters) ───────────────────────────────────────
 
@@ -114,6 +117,52 @@ const approvePayment = async (req, res, next) => {
     emitToUser(userId.toString(), 'user:updated', updatedUser);
     emitToAdmins('payment:updated', payment);
     emitToAdmins('user:updated', updatedUser);
+
+    // Send payment receipt email with PDF (non-blocking)
+    try {
+      const user = updatedUser;
+      if (user && user.email) {
+        const firstName = (user.name || 'there').split(' ')[0];
+        const approvalDate = new Date().toLocaleDateString('en-IN', {
+          day: '2-digit', month: 'long', year: 'numeric',
+        });
+
+        let roomTypeName = '';
+        if (user.roomTypeId) {
+          const RoomType = require('../../models/RoomType');
+          const rt = await RoomType.findById(user.roomTypeId).lean();
+          roomTypeName = rt?.name || rt?.displayName || '';
+        }
+
+        const paymentObj = payment.toObject ? payment.toObject() : payment;
+
+        const pdfBuffer = await generateReceiptPdf({
+          receiptType: 'payment',
+          user: { name: user.name, email: user.email, phone: user.phone, userId: user.userId },
+          payment: paymentObj,
+          roomTypeName,
+        });
+
+        const html = buildPaymentReceiptEmailHtml({
+          firstName,
+          userId: user.userId,
+          paymentId: paymentObj.paymentId,
+          amount: paymentObj.amount,
+          paymentMode: paymentObj.paymentMode,
+          installmentNumber: paymentObj.installmentNumber,
+          approvalDate,
+        });
+
+        await sendEmail({
+          to: user.email,
+          subject: 'Payment Confirmed — Viramah Student Living',
+          html,
+          attachments: [{ filename: `Viramah-Payment-Receipt-${paymentObj.paymentId}.pdf`, content: pdfBuffer }],
+        });
+      }
+    } catch (emailErr) {
+      console.error('[ApprovePayment] Receipt email failed (non-fatal):', emailErr.message);
+    }
 
     return success(res, payment, 'Payment approved successfully');
   } catch (err) {

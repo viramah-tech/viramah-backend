@@ -2,8 +2,12 @@
 
 const RoomHold     = require('../../models/RoomHold');
 const RefundRecord = require('../../models/RefundRecord');
+const User         = require('../../models/User');
 const depositService = require('../../services/depositService');
 const { success, error } = require('../../utils/apiResponse');
+const { sendEmail } = require('../../services/emailService');
+const { generateReceiptPdf } = require('../../services/pdfService');
+const { buildDepositReceiptEmailHtml } = require('../../templates/depositReceiptEmail');
 
 // ── GET /api/admin/deposits ───────────────────────────────────────────────────
 /**
@@ -83,6 +87,52 @@ const approveDeposit = async (req, res) => {
     const adminId    = req.user._id;
 
     const hold = await depositService.approveDeposit(holdId, adminId);
+
+    // Send deposit receipt email with PDF (non-blocking)
+    try {
+      const user = await User.findById(hold.userId).lean();
+      if (user && user.email) {
+        const firstName = (user.name || 'there').split(' ')[0];
+        const approvalDate = new Date().toLocaleDateString('en-IN', {
+          day: '2-digit', month: 'long', year: 'numeric',
+        });
+
+        let roomTypeName = '';
+        if (hold.roomTypeId) {
+          const RoomType = require('../../models/RoomType');
+          const rt = await RoomType.findById(hold.roomTypeId).lean();
+          roomTypeName = rt?.name || rt?.displayName || '';
+        }
+
+        const holdObj = hold.toObject ? hold.toObject() : hold;
+
+        const pdfBuffer = await generateReceiptPdf({
+          receiptType: 'deposit',
+          user: { name: user.name, email: user.email, phone: user.phone, userId: user.userId },
+          payment: holdObj,
+          roomTypeName,
+        });
+
+        const html = buildDepositReceiptEmailHtml({
+          firstName,
+          userId: user.userId,
+          depositAmount: holdObj.depositAmount || 15000,
+          registrationFee: holdObj.registrationFeePaid || 0,
+          totalPaid: holdObj.totalPaidAtDeposit || holdObj.depositAmount || 15000,
+          paymentMode: holdObj.paymentMode,
+          approvalDate,
+        });
+
+        await sendEmail({
+          to: user.email,
+          subject: 'Deposit Confirmed — Viramah Student Living',
+          html,
+          attachments: [{ filename: `Viramah-Deposit-Receipt-${user.userId}.pdf`, content: pdfBuffer }],
+        });
+      }
+    } catch (emailErr) {
+      console.error('[ApproveDeposit] Receipt email failed (non-fatal):', emailErr.message);
+    }
 
     return success(res, { hold }, 'Deposit approved. Room is now held for the resident.');
   } catch (err) {

@@ -1,24 +1,13 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { Resend } = require('resend');
 const { buildOtpEmailHtml } = require('../templates/otpEmail');
+const { sendEmail } = require('./emailService');
 
 // ── Configuration ────────────────────────────────────────────────────────────
 const OTP_LENGTH = 6;
 const OTP_EXPIRY_MINUTES = 10;
 const OTP_MAX_ATTEMPTS = 5;
 const OTP_COOLDOWN_SECONDS = 60; // min time between resend requests
-
-// ── Resend client (lazy singleton) ───────────────────────────────────────────
-let _resend = null;
-function getResend() {
-  if (!_resend) {
-    const key = process.env.RESEND_API_KEY;
-    if (!key) throw new Error('RESEND_API_KEY is not configured');
-    _resend = new Resend(key);
-  }
-  return _resend;
-}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -95,10 +84,8 @@ async function sendEmailOtp(user) {
   user.emailOtpAttempts = 0;
   await user.save();
 
-  // Send email via Resend
-  const resend = getResend();
+  // Send email via emailService
   const firstName = (user.name || 'there').split(' ')[0];
-  const fromAddress = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
 
   const html = buildOtpEmailHtml({
     firstName,
@@ -107,27 +94,19 @@ async function sendEmailOtp(user) {
     expiryMinutes: OTP_EXPIRY_MINUTES,
   });
 
-  const result = await resend.emails.send({
-    from: `Viramah Stay <${fromAddress}>`,
-    to: [user.email],
-    replyTo: fromAddress,
-    subject: `${otp} — Your Viramah verification code`,
-    html,
-    headers: {
-      'X-Priority': '1',
-      'Importance': 'high',
-      'X-Mailer': 'Viramah-Transactional-v1',
-    },
-  });
-
-  if (result.error) {
-    console.error('[OTP] Resend send error:', result.error);
+  try {
+    const result = await sendEmail({
+      to: user.email,
+      subject: `${otp} — Your Viramah verification code`,
+      html,
+    });
+    console.log(`[OTP] Email OTP sent to ${maskEmail(user.email)} (id=${result.id})`);
+  } catch (error) {
+    console.error('[OTP] Resend send error:', error);
     const err = new Error('Failed to send verification email. Please try again.');
     err.statusCode = 502;
     throw err;
   }
-
-  console.log(`[OTP] Email OTP sent to ${maskEmail(user.email)} (id=${result.data?.id})`);
 
   return {
     success: true,

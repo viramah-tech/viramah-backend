@@ -3,7 +3,7 @@ const { body } = require('express-validator');
 const { validate } = require('../../middleware/validate');
 const { protect } = require('../../middleware/auth');
 const { authorize } = require('../../middleware/roleAuth');
-const { register, login, logout, getMe, acceptTerms } = require('../../controllers/public/authController');
+const { register, login, logout, getMe, acceptTerms, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordReset } = require('../../controllers/public/authController');
 
 const router = express.Router();
 
@@ -50,5 +50,37 @@ router.get('/me', protect, authorize('user'), getMe);
 
 // POST /api/public/auth/accept-terms (protected - record T&C + Privacy Policy acceptance)
 router.post('/accept-terms', protect, authorize('user'), acceptTerms);
+
+// ── Forgot Password ──────────────────────────────────────────────────────────
+router.post(
+  '/forgot-password/send-otp',
+  [
+    body('email').isEmail().withMessage('Valid email is required'),
+  ],
+  validate,
+  forgotPasswordSendOtp
+);
+
+router.post(
+  '/forgot-password/verify-otp',
+  [
+    body('email').isEmail().withMessage('Valid email is required'),
+    body('otp').isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits'),
+  ],
+  validate,
+  forgotPasswordVerifyOtp
+);
+
+router.post(
+  '/forgot-password/reset',
+  [
+    body('email').isEmail().withMessage('Valid email is required'),
+    body('newPassword')
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters'),
+  ],
+  validate,
+  forgotPasswordReset
+);
 
 module.exports = router;

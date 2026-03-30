@@ -158,6 +158,13 @@ const userSchema = new mongoose.Schema(
     phoneOtpExpiresAt:    { type: Date, default: null },
     phoneOtpAttempts:     { type: Number, default: 0 },
 
+    // ── Password Reset OTP ───────────────────────────────────────────────────
+    passwordResetOtp:             { type: String, default: null },
+    passwordResetOtpExpiresAt:    { type: Date, default: null },
+    passwordResetOtpAttempts:     { type: Number, default: 0 },
+    /** Set to true after OTP is verified; cleared after password is actually reset. */
+    passwordResetVerified:        { type: Boolean, default: false },
+
     // ── Account Lockout (Brute-Force Protection) ──────────────────────────────
     /** Number of consecutive failed login attempts. Reset on successful login. */
     loginAttempts:            { type: Number, default: 0 },

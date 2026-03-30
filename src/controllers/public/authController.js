@@ -1,7 +1,13 @@
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const User = require('../../models/User');
 const { getPricingConfig } = require('../../services/pricingService');
 const { attachRoomTypeName } = require('../../utils/attachRoomType');
 const { success, error } = require('../../utils/apiResponse');
+const { sendEmail } = require('../../services/emailService');
+const { buildWelcomeEmailHtml } = require('../../templates/welcomeEmail');
+const { buildPasswordResetOtpEmailHtml } = require('../../templates/passwordResetOtpEmail');
+const { buildPasswordChangedEmailHtml } = require('../../templates/passwordChangedEmail');
 
 /**
  * POST /api/public/auth/register
@@ -62,6 +68,24 @@ const register = async (req, res, next) => {
     }
 
     const token = user.generateAuthToken();
+
+    // Send welcome email with credentials (non-blocking — don't fail registration if email fails)
+    try {
+      const firstName = (name || 'there').split(' ')[0];
+      const html = buildWelcomeEmailHtml({
+        firstName,
+        userId: user.userId,
+        email: user.email,
+        password: password, // plain-text captured before Mongoose pre-save hook hashed it
+      });
+      await sendEmail({
+        to: user.email,
+        subject: 'Welcome to Viramah Student Living — Your Account Details',
+        html,
+      });
+    } catch (emailErr) {
+      console.error('[Register] Welcome email failed (non-fatal):', emailErr.message);
+    }
 
     // Set token in cookie
     const cookieOptions = {
@@ -313,4 +337,187 @@ const acceptTerms = async (req, res, next) => {
   }
 };
 
-module.exports = { register, login, logout, getMe, acceptTerms };
+// ── OTP config (matches otpService) ──────────────────────────────────────────
+const OTP_LENGTH = 6;
+const OTP_EXPIRY_MINUTES = 10;
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_COOLDOWN_SECONDS = 60;
+
+/**
+ * POST /api/public/auth/forgot-password/send-otp
+ * Check if email exists, send OTP for password reset
+ */
+const forgotPasswordSendOtp = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return error(res, 'No account found with this email address. Please register first.', 404);
+    }
+
+    // Cooldown check
+    if (user.passwordResetOtpExpiresAt) {
+      const sentAt = new Date(user.passwordResetOtpExpiresAt.getTime() - OTP_EXPIRY_MINUTES * 60 * 1000);
+      const cooldownEnd = new Date(sentAt.getTime() + OTP_COOLDOWN_SECONDS * 1000);
+      if (Date.now() < cooldownEnd.getTime()) {
+        const waitSecs = Math.ceil((cooldownEnd.getTime() - Date.now()) / 1000);
+        return error(res, `Please wait ${waitSecs} seconds before requesting a new code.`, 429);
+      }
+    }
+
+    // Generate OTP
+    const otp = String(crypto.randomInt(0, 10 ** OTP_LENGTH)).padStart(OTP_LENGTH, '0');
+    const salt = await bcrypt.genSalt(6);
+    const hashedOtp = await bcrypt.hash(otp, salt);
+
+    user.passwordResetOtp = hashedOtp;
+    user.passwordResetOtpExpiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+    user.passwordResetOtpAttempts = 0;
+    user.passwordResetVerified = false;
+    await user.save();
+
+    // Send OTP email
+    const firstName = (user.name || 'there').split(' ')[0];
+    const html = buildPasswordResetOtpEmailHtml({ firstName, otp, expiryMinutes: OTP_EXPIRY_MINUTES });
+
+    await sendEmail({
+      to: user.email,
+      subject: `${otp} — Password Reset Code | Viramah`,
+      html,
+    });
+
+    // Mask email for response
+    const [local, domain] = user.email.split('@');
+    const maskedEmail = local.length <= 2
+      ? `${local[0]}***@${domain}`
+      : `${local[0]}${'*'.repeat(Math.min(local.length - 2, 5))}${local.slice(-1)}@${domain}`;
+
+    return success(res, { maskedEmail, expiresIn: OTP_EXPIRY_MINUTES * 60 }, 'OTP sent to your registered email.');
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/public/auth/forgot-password/verify-otp
+ * Verify the OTP code
+ */
+const forgotPasswordVerifyOtp = async (req, res, next) => {
+  try {
+    const { email, otp } = req.body;
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return error(res, 'No account found with this email address.', 404);
+    }
+
+    if (!user.passwordResetOtp || !user.passwordResetOtpExpiresAt) {
+      return error(res, 'No OTP was requested. Please request a new code.', 400);
+    }
+
+    // Check expiry
+    if (Date.now() > user.passwordResetOtpExpiresAt.getTime()) {
+      user.passwordResetOtp = null;
+      user.passwordResetOtpExpiresAt = null;
+      user.passwordResetOtpAttempts = 0;
+      user.passwordResetVerified = false;
+      await user.save();
+      return error(res, 'Code has expired. Please request a new one.', 410);
+    }
+
+    // Check max attempts
+    if (user.passwordResetOtpAttempts >= OTP_MAX_ATTEMPTS) {
+      user.passwordResetOtp = null;
+      user.passwordResetOtpExpiresAt = null;
+      user.passwordResetOtpAttempts = 0;
+      user.passwordResetVerified = false;
+      await user.save();
+      return error(res, 'Too many incorrect attempts. Please request a new code.', 429);
+    }
+
+    // Compare
+    const isValid = await bcrypt.compare(otp, user.passwordResetOtp);
+    if (!isValid) {
+      user.passwordResetOtpAttempts += 1;
+      await user.save();
+      const remaining = OTP_MAX_ATTEMPTS - user.passwordResetOtpAttempts;
+      return error(
+        res,
+        remaining > 0
+          ? `Invalid code. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`
+          : 'Too many incorrect attempts. Please request a new code.',
+        400
+      );
+    }
+
+    // OTP verified — mark as verified
+    user.passwordResetVerified = true;
+    user.passwordResetOtpAttempts = 0;
+    await user.save();
+
+    return success(res, { verified: true }, 'OTP verified successfully. You can now set a new password.');
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/public/auth/forgot-password/reset
+ * Set new password (requires OTP to have been verified)
+ */
+const forgotPasswordReset = async (req, res, next) => {
+  try {
+    const { email, newPassword } = req.body;
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return error(res, 'No account found with this email address.', 404);
+    }
+
+    if (!user.passwordResetVerified) {
+      return error(res, 'OTP has not been verified. Please verify OTP first.', 403);
+    }
+
+    // Validate password
+    if (!newPassword || newPassword.length < 8) {
+      return error(res, 'Password must be at least 8 characters.', 400);
+    }
+    if (newPassword.toLowerCase() === user.email.toLowerCase()) {
+      return error(res, 'Password must not be the same as your email.', 400);
+    }
+    if (newPassword.toLowerCase() === (user.name || '').trim().toLowerCase()) {
+      return error(res, 'Password must not be the same as your name.', 400);
+    }
+
+    // Set new password (pre-save hook will hash it)
+    user.password = newPassword;
+
+    // Clear all password reset fields
+    user.passwordResetOtp = null;
+    user.passwordResetOtpExpiresAt = null;
+    user.passwordResetOtpAttempts = 0;
+    user.passwordResetVerified = false;
+
+    await user.save();
+
+    // Send password changed confirmation email (non-blocking)
+    try {
+      const firstName = (user.name || 'there').split(' ')[0];
+      const html = buildPasswordChangedEmailHtml({ firstName });
+      await sendEmail({
+        to: user.email,
+        subject: 'Password Changed Successfully — Viramah Student Living',
+        html,
+      });
+    } catch (emailErr) {
+      console.error('[ForgotPassword] Confirmation email failed (non-fatal):', emailErr.message);
+    }
+
+    return success(res, null, 'Password has been reset successfully. You can now log in with your new password.');
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { register, login, logout, getMe, acceptTerms, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordReset };
