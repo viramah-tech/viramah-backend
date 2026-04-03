@@ -229,11 +229,11 @@ const calculatePayment = async ({
 
   const discountRate = paymentMode === 'full' ? discountFull : discountHalf;
 
-  // ── 4. Business rule: mess with full mode = always lump sum ─────────────
+  // ── 4. Business rule: mess always uses lump sum for full-tenure charge ──
   const { transport = false, mess = false } = addOns;
-  // For full payment mode, mess always uses the lump sum price (₹19,000).
-  // The messLumpSum flag is auto-derived — frontend does not need to send it.
-  const messLumpSum = mess && paymentMode === 'full';
+  // Both 'full' and 'half' modes charge mess for the full tenure (11 months).
+  // The yearly lump sum price (₹19,900) is always used instead of monthly × 11.
+  const messLumpSum = mess;
 
   // ── 5. Referral validation ────────────────────────────────────────────────
   let referrer = null;
@@ -326,9 +326,10 @@ const calculatePayment = async ({
     const inst1RoomTotal      = discountedMonthlyWithGST * installment1Months;
     const inst2RoomTotal      = discountedMonthlyWithGST * installment2Months;
 
-    // Transport & mess: full tenure, all in installment 1
+    // Transport: full tenure monthly rate, all in installment 1
     const transportTotal = discountedMonthlyTransport * tenureMonths;
-    const messTotal      = discountedMonthlyMess * tenureMonths;
+    // Mess: full tenure lump sum price (₹19,900), all in installment 1
+    const messTotal      = mess ? messLumpSumAmount : 0;
 
     const inst1Subtotal  = inst1RoomTotal + transportTotal + messTotal;
     const inst2Subtotal  = inst2RoomTotal; // Room rent only
@@ -354,7 +355,7 @@ const calculatePayment = async ({
       messMonthly:        mess ? messMonthly : 0,
       discountedMonthlyMess,
       messTotal,
-      messIsLumpSum:      false,
+      messIsLumpSum:      mess, // full tenure lump sum used in half mode too
       discountRate,
       gstRate,
       tenureMonths,

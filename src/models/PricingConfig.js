@@ -33,9 +33,9 @@ const pricingConfigSchema = new mongoose.Schema(
 
     /**
      * Full-tenure mess lump sum (available ONLY for 'full' payment mode).
-     * Cheaper than paying monthly (₹2,200 × 11 = ₹24,200 vs ₹19,000 lump sum).
+     * Cheaper than paying monthly (₹2,200 × 11 = ₹24,200 vs ₹19,900 lump sum).
      */
-    messLumpSum: { type: Number, default: 19000, min: 0 },
+    messLumpSum: { type: Number, default: 19900, min: 0 },
 
     /** Discount rate for 'full' payment mode (applied to room + add-ons) */
     discountFull: { type: Number, default: 0.40, min: 0, max: 1 },
