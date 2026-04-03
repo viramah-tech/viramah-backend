@@ -139,14 +139,15 @@ const applyReferralCredit = async (referrerUserId, amount) => {
  *     finalAmount   = subtotal + flatFees - referralDeduction
  *
  *   For 'half' mode (installment 1 = 6 months, installment 2 = 5 months):
+ *     ONLY room rent is split across installments.
+ *     Transport and mess are charged for the FULL tenure (11 months) in installment 1.
+ *
  *     inst1RoomTotal     = discountedMonthlyWithGST × installment1Months
  *     inst2RoomTotal     = discountedMonthlyWithGST × (tenureMonths - installment1Months)
- *     inst1TransportTotal = transportMonthly × installment1Months              [no discount]
- *     inst2TransportTotal = transportMonthly × (tenureMonths - installment1Months) [no discount]
- *     inst1MessTotal     = messMonthly × installment1Months                    [no discount]
- *     inst2MessTotal     = messMonthly × (tenureMonths - installment1Months)    [no discount]
- *     installment1 = inst1RoomTotal + inst1Transport + inst1Mess + flatFees - referralDeduction
- *     installment2 = inst2RoomTotal + inst2Transport + inst2Mess   (NO flat fees, NO referral)
+ *     transportTotal     = transportMonthly × tenureMonths                     [full tenure, no discount]
+ *     messTotal          = messMonthly × tenureMonths                          [full tenure, no discount]
+ *     installment1 = inst1RoomTotal + transportTotal + messTotal + flatFees - referralDeduction
+ *     installment2 = inst2RoomTotal   (room rent only, NO add-ons, flat fees, or referral)
  *
  * @param {Object} params
  * @param {string} params.roomTypeId   - MongoDB ObjectId of the RoomType
@@ -320,22 +321,22 @@ const calculatePayment = async ({
 
   } else {
     // ── HALF mode ──────────────────────────────────────────────────────────
-    // Mess for half mode — always monthly rate, no lump sum (enforced above)
-    const inst1MessTotal = discountedMonthlyMess * installment1Months;
-    const inst2MessTotal = discountedMonthlyMess * installment2Months;
-
+    // ONLY room rent is split across installments (6mo + 5mo).
+    // Transport and mess are charged for the FULL tenure (11 months) in installment 1.
     const inst1RoomTotal      = discountedMonthlyWithGST * installment1Months;
     const inst2RoomTotal      = discountedMonthlyWithGST * installment2Months;
-    const inst1TransportTotal = discountedMonthlyTransport * installment1Months;
-    const inst2TransportTotal = discountedMonthlyTransport * installment2Months;
 
-    const inst1Subtotal  = inst1RoomTotal + inst1TransportTotal + inst1MessTotal;
-    const inst2Subtotal  = inst2RoomTotal + inst2TransportTotal + inst2MessTotal;
+    // Transport & mess: full tenure, all in installment 1
+    const transportTotal = discountedMonthlyTransport * tenureMonths;
+    const messTotal      = discountedMonthlyMess * tenureMonths;
+
+    const inst1Subtotal  = inst1RoomTotal + transportTotal + messTotal;
+    const inst2Subtotal  = inst2RoomTotal; // Room rent only
 
     const depositCreditAmt = Math.max(0, depositCredit);
 
     installment1 = inst1Subtotal + flatFees - referralDeduction - depositCreditAmt;
-    installment2 = inst2Subtotal; // No flat fees, referral, or deposit credit on installment 2
+    installment2 = inst2Subtotal; // No add-ons, flat fees, referral, or deposit credit on installment 2
 
     const totalFinalAmount = installment1 + installment2;
 
@@ -349,10 +350,10 @@ const calculatePayment = async ({
       securityDeposit:     hasDepositCredit ? 0 : securityDeposit,
       transportMonthly:   transport ? transportMonthly : 0,
       discountedMonthlyTransport,
-      transportTotal:     inst1TransportTotal,
+      transportTotal,
       messMonthly:        mess ? messMonthly : 0,
       discountedMonthlyMess,
-      messTotal:          inst1MessTotal,
+      messTotal,
       messIsLumpSum:      false,
       discountRate,
       gstRate,
@@ -372,12 +373,12 @@ const calculatePayment = async ({
       roomRentTotal:      inst2RoomTotal,
       registrationFee:    0,
       securityDeposit:    0,
-      transportMonthly:   transport ? transportMonthly : 0,
-      discountedMonthlyTransport,
-      transportTotal:     inst2TransportTotal,
-      messMonthly:        mess ? messMonthly : 0,
-      discountedMonthlyMess,
-      messTotal:          inst2MessTotal,
+      transportMonthly:   0,
+      discountedMonthlyTransport: 0,
+      transportTotal:     0,
+      messMonthly:        0,
+      discountedMonthlyMess: 0,
+      messTotal:          0,
       messIsLumpSum:      false,
       discountRate,
       gstRate,
