@@ -23,9 +23,49 @@ const paymentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected', 'upcoming'],
+      // Legacy 'upcoming' retained for pre-rebuild records; new statuses added per plan Section 3.3
+      enum: ['pending', 'approved', 'rejected', 'upcoming', 'on_hold', 'disputed'],
       default: 'pending',
     },
+
+    // ── V2 fields (plan Section 3.3) — additive, nullable for legacy records ──
+    planId:    { type: mongoose.Schema.Types.ObjectId, ref: 'PaymentPlan', default: null, index: true },
+    bookingId: { type: mongoose.Schema.Types.ObjectId, ref: 'RoomHold', default: null },
+    phaseNumber: { type: Number, enum: [1, 2, null], default: null },
+    paymentType: {
+      type: String,
+      enum: [
+        'track1_full',
+        'track2_phase1',
+        'track2_phase2',
+        'track3_booking',
+        'track3_advance',
+        'manual_admin',
+        null,
+      ],
+      default: null,
+    },
+    // Top-level amount breakdown (snapshot at submission)
+    grossRent:            { type: Number, default: null },
+    discountAmount:       { type: Number, default: null },
+    netRent:              { type: Number, default: null },
+    nonRentalTotal:       { type: Number, default: null },
+    advanceCreditApplied: { type: Number, default: null },
+    // Enum'd paymentMethodV2 — legacy `paymentMethod` (free text) preserved for old records
+    paymentMethodV2: {
+      type: String,
+      enum: ['UPI', 'NEFT', 'RTGS', 'IMPS', 'CASH', 'CHEQUE', 'OTHER', null],
+      default: null,
+    },
+    submittedAt:   { type: Date, default: Date.now },
+    reviewedBy:    {
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      name:   { type: String, default: '' },
+      role:   { type: String, default: '' },
+    },
+    reviewedAt:    { type: Date, default: null },
+    reviewRemarks: { type: String, default: null },
+    transactionRef:{ type: mongoose.Schema.Types.ObjectId, ref: 'Transaction', default: null },
 
     /** Amount of security deposit already paid that was credited against this payment (0 if no hold). */
     depositCredited: { type: Number, default: 0 },
@@ -103,12 +143,24 @@ const paymentSchema = new mongoose.Schema(
   }
 );
 
-// Auto-generate paymentId before saving (collision-free)
+// Auto-generate paymentId before saving — ULID for new records, legacy uuid fallback.
+const { paymentId: newPaymentId } = require('../utils/ulid');
 paymentSchema.pre('save', function () {
   if (!this.paymentId) {
-    this.paymentId = `PAY-${uuidv4().split('-')[0].toUpperCase()}`;
+    try {
+      this.paymentId = newPaymentId();
+    } catch (_err) {
+      // Fallback in case ulid package not yet installed during migration
+      this.paymentId = `PAY-${uuidv4().split('-')[0].toUpperCase()}`;
+    }
   }
 });
+
+// V2 indexes (plan Section 9)
+paymentSchema.index({ userId: 1, status: 1 });
+paymentSchema.index({ status: 1, submittedAt: -1 });
+paymentSchema.index({ planId: 1 });
+paymentSchema.index({ transactionId: 1 });
 
 /**
  * Guard: prevent breakdown from being modified once set.

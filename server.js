@@ -16,8 +16,10 @@ const connectDB = require('./src/config/db');
 const errorHandler = require('./src/middleware/errorHandler');
 const publicRoutes = require('./src/routes/public');
 const adminRoutes  = require('./src/routes/admin');
+const paymentV2Routes = require('./src/routes/paymentV2');
 const { initializeSocket } = require('./src/services/socketService');
 const { seedPricingConfig } = require('./src/models/PricingConfig');
+const { registerPhase2UnlockJob } = require('./src/jobs/phase2Unlock');
 
 const app = express();
 
@@ -100,6 +102,8 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Mount routes
 app.use('/api/public', publicRoutes);
 app.use('/api/admin', adminRoutes);
+// V2 payment flow (plan Section 4) — sits alongside legacy /api/public/payments during transition
+app.use('/api/payment', paymentV2Routes);
 // Note: admin upload routes are mounted inside adminRoutes index.js — no separate mount needed.
 // Root
 app.get('/', (req, res) => {
@@ -126,6 +130,9 @@ const start = async () => {
   // Create HTTP server and attach Socket.IO
   const server = http.createServer(app);
   initializeSocket(server);
+
+  // Phase 2 unlock scheduler — runs daily at 00:01 AM IST (Plan Section 8)
+  registerPhase2UnlockJob();
 
   server.listen(PORT, () => {
     console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
