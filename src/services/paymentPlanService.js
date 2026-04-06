@@ -17,6 +17,7 @@ const DiscountConfig = require('../models/DiscountConfig');
 const User           = require('../models/User');
 const RoomType       = require('../models/RoomType');
 const RoomHold       = require('../models/RoomHold');
+const Payment        = require('../models/Payment');
 const pricingService = require('./pricingService');
 const engine         = require('./adjustmentEngine');
 
@@ -166,9 +167,19 @@ async function selectTrack(userId, { trackId, addOns = {} }) {
     throw err('Complete onboarding before selecting a track', 422);
   }
 
-  // Reject if user already has an active plan
+  // Reject if user already has an active plan with submitted payments
+  // If no payments exist, cancel the old plan to allow re-selection
   const existing = await PaymentPlan.findOne({ userId, status: 'active' });
-  if (existing) throw err('An active payment plan already exists for this user', 409);
+  if (existing) {
+    const paymentExists = await Payment.findOne({ planId: existing._id, status: { $in: ['pending', 'approved'] } });
+    if (paymentExists) {
+      throw err('An active payment plan with submitted payments already exists for this user', 409);
+    } else {
+      existing.status = 'cancelled';
+      existing.cancelledReason = 'User replaced the track before making any payment';
+      await existing.save();
+    }
+  }
 
   const components = await buildComponents(user, { addOns });
   const phases     = buildPhasesFor(trackId, components);
@@ -196,8 +207,19 @@ async function createBookingPlan(userId, { addOns = {}, advance = 0 } = {}) {
   const user = await User.findById(userId);
   if (!user) throw err('User not found', 404);
 
+  // Reject if user already has an active plan with submitted payments
+  // If no payments exist, cancel the old plan to allow re-selection
   const existing = await PaymentPlan.findOne({ userId, status: 'active' });
-  if (existing) throw err('An active payment plan already exists for this user', 409);
+  if (existing) {
+    const paymentExists = await Payment.findOne({ planId: existing._id, status: { $in: ['pending', 'approved'] } });
+    if (paymentExists) {
+      throw err('An active payment plan with submitted payments already exists for this user', 409);
+    } else {
+      existing.status = 'cancelled';
+      existing.cancelledReason = 'User replaced the track before making any payment';
+      await existing.save();
+    }
+  }
 
   const components = await buildComponents(user, { addOns });
   const hold = await RoomHold.findOne({ userId }).sort({ createdAt: -1 });
