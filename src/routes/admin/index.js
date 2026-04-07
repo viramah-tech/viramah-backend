@@ -10,6 +10,7 @@ const discountRoutes = require('./discount');
 const paymentsV2Routes = require('./paymentsV2');
 const planAdminRoutes  = require('./planAdmin');
 const accountantRoutes = require('./accountant');
+const pricingConfigRoutes = require('./pricingConfig');
 
 const router = express.Router();
 
@@ -28,6 +29,7 @@ router.use('/payments-v2', paymentsV2Routes);
 router.use('/', planAdminRoutes);
 // V2 accountant dashboard (Section 4.6) — /api/admin/accountant/*
 router.use('/accountant', accountantRoutes);
+router.use('/', pricingConfigRoutes);
 
 module.exports = router;
 

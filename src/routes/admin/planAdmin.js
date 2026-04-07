@@ -65,4 +65,48 @@ router.post('/adjustments/waiver',
   ctrl.waiver
 );
 
+router.post('/adjustments/credit',
+  [
+    body('userId').notEmpty(),
+    body('planId').notEmpty(),
+    body('value').isNumeric(),
+    body('reason').trim().notEmpty(),
+  ],
+  validate,
+  ctrl.credit
+);
+
+router.post('/adjustments/penalty',
+  [
+    body('userId').notEmpty(),
+    body('planId').notEmpty(),
+    body('value').isNumeric(),
+    body('reason').trim().notEmpty(),
+  ],
+  validate,
+  ctrl.penalty
+);
+
+router.get('/adjustments', ctrl.listAdjustments);
+
+router.patch('/adjustments/:id/approve', ctrl.approveAdjustment);
+
+router.patch('/adjustments/:id/reject',
+  [body('reason').optional().isString()],
+  validate,
+  ctrl.rejectAdjustment
+);
+
+router.post('/adjustments/preview',
+  [
+    body('userId').notEmpty(),
+    body('planId').notEmpty(),
+    body('phaseNumber').isInt({ min: 1, max: 2 }),
+    body('type').isIn(['waiver', 'custom_charge', 'credit', 'penalty']),
+    body('value').isNumeric(),
+  ],
+  validate,
+  ctrl.previewAdjustment
+);
+
 module.exports = router;

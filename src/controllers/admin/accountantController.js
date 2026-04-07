@@ -29,6 +29,21 @@ module.exports = {
   discountImpact: wrap(async (req, res) =>
     success(res, await svc.getDiscountImpact(), 'Discount impact')),
 
+  userLedger: wrap(async (req, res) =>
+    success(res, await svc.getUserLedger(req.params.userId), 'User ledger')),
+
+  aging: wrap(async (req, res) =>
+    success(res, await svc.getAgingReport(), 'Aging report')),
+
+  cashFlow: wrap(async (req, res) =>
+    success(res, await svc.getCashFlowTrend(parseInt(req.query.months, 10) || 6), 'Cashflow trend')),
+
+  depositPipeline: wrap(async (req, res) =>
+    success(res, await svc.getDepositPipeline(), 'Deposit pipeline')),
+
+  revenueBreakdown: wrap(async (req, res) =>
+    success(res, await svc.getRevenueBreakdown(), 'Revenue breakdown')),
+
   adjustments: wrap(async (req, res) =>
     success(res, await svc.getAdjustmentsList({
       type: req.query.type,

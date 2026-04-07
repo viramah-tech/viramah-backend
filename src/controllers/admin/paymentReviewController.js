@@ -81,4 +81,33 @@ const manual = async (req, res, next) => {
   }
 };
 
-module.exports = { list, detail, approve, reject, hold, manual };
+const bulkApproveCtrl = async (req, res, next) => {
+  try {
+    const { paymentIds } = req.body;
+    const results = await svc.bulkApprove(paymentIds, actorFromReq(req));
+    return success(res, results, 'Bulk approve completed');
+  } catch (e) {
+    if (e.statusCode) return error(res, e.message, e.statusCode);
+    next(e);
+  }
+};
+
+const bulkRejectCtrl = async (req, res, next) => {
+  try {
+    const { paymentIds, reason } = req.body;
+    const results = await svc.bulkReject(paymentIds, reason, actorFromReq(req));
+    return success(res, results, 'Bulk reject completed');
+  } catch (e) {
+    if (e.statusCode) return error(res, e.message, e.statusCode);
+    next(e);
+  }
+};
+
+const unifiedStats = async (req, res, next) => {
+  try {
+    const stats = await svc.getUnifiedStats();
+    return success(res, stats, 'Unified payment stats');
+  } catch (e) { next(e); }
+};
+
+module.exports = { list, detail, approve, reject, hold, manual, bulkApprove: bulkApproveCtrl, bulkReject: bulkRejectCtrl, unifiedStats };

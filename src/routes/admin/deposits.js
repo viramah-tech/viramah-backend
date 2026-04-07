@@ -14,6 +14,10 @@ const {
   approveRefund,
   rejectRefund,
   triggerExpireHolds,
+  adminCreateDeposit,
+  extendDeadline,
+  forceExpireHold,
+  getFinancialSummary,
 } = require('../../controllers/admin/depositController');
 
 const router = express.Router();
@@ -21,43 +25,66 @@ const router = express.Router();
 // All admin deposit routes require admin auth
 router.use(protect, authorize('admin', 'accountant'));
 
-// ── GET /api/admin/deposits/stats ─────────────────────────────────────────────
+// ── Static routes (BEFORE :holdId wildcard) ──────────────────────────────────
 router.get('/stats', getDepositStats);
-
-// ── GET /api/admin/deposits ───────────────────────────────────────────────────
+router.get('/financial-summary', getFinancialSummary);
 router.get('/', listDeposits);
-
-// ── GET /api/admin/deposits/refund-requests ───────────────────────────────────
-// Must be BEFORE /:holdId to avoid route conflict
 router.get('/refund-requests', listRefundRequests);
 
-// ── POST /api/admin/deposits/expire-holds (manual trigger for testing) ────────
-// TODO: Remove this endpoint once a cron job is implemented
+// Admin-only actions
 router.post('/expire-holds', authorize('admin'), triggerExpireHolds);
+router.post('/create',
+  [
+    body('userId').trim().notEmpty().withMessage('userId is required'),
+    body('roomTypeId').trim().notEmpty().withMessage('roomTypeId is required'),
+    body('paymentMode').isIn(['full', 'half', 'deposit']).withMessage('paymentMode must be full, half, or deposit'),
+  ],
+  validate,
+  auditLog('ADMIN_CREATE_DEPOSIT', 'deposit'),
+  adminCreateDeposit
+);
 
-// ── PATCH /api/admin/deposits/:holdId/approve ─────────────────────────────────
+// ── Parameterized routes ─────────────────────────────────────────────────────
 router.patch(
   '/:holdId/approve',
-  [
-    param('holdId').isMongoId().withMessage('holdId must be a valid ID'),
-  ],
+  [param('holdId').isMongoId().withMessage('holdId must be a valid ID')],
   validate,
   auditLog('APPROVE_DEPOSIT', 'deposit'),
   approveDeposit
 );
 
-// ── PATCH /api/admin/deposits/refunds/:refundId/approve ──────────────────────
+router.patch(
+  '/:holdId/extend-deadline',
+  [
+    param('holdId').isMongoId().withMessage('holdId must be a valid ID'),
+    body('reason').trim().notEmpty().isLength({ min: 5 }).withMessage('reason is required (min 5 chars)'),
+  ],
+  validate,
+  auditLog('EXTEND_DEADLINE', 'deposit'),
+  extendDeadline
+);
+
+router.patch(
+  '/:holdId/force-expire',
+  [
+    param('holdId').isMongoId().withMessage('holdId must be a valid ID'),
+    body('reason').trim().notEmpty().isLength({ min: 5 }).withMessage('reason is required (min 5 chars)'),
+  ],
+  validate,
+  authorize('admin'),
+  auditLog('FORCE_EXPIRE_HOLD', 'deposit'),
+  forceExpireHold
+);
+
+// ── Refund actions ───────────────────────────────────────────────────────────
 router.patch(
   '/refunds/:refundId/approve',
-  [
-    param('refundId').isMongoId().withMessage('refundId must be a valid ID'),
-  ],
+  [param('refundId').isMongoId().withMessage('refundId must be a valid ID')],
   validate,
   auditLog('APPROVE_REFUND', 'refund'),
   approveRefund
 );
 
-// ── PATCH /api/admin/deposits/refunds/:refundId/reject ───────────────────────
 router.patch(
   '/refunds/:refundId/reject',
   [
@@ -70,3 +97,4 @@ router.patch(
 );
 
 module.exports = router;
+

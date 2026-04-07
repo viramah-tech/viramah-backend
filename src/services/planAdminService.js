@@ -181,6 +181,106 @@ async function addWaiver({ userId, planId, phaseNumber, valueType, value, descri
   return adj;
 }
 
+async function addCredit({ userId, planId, phaseNumber, valueType, value, description, reason, actor }) {
+  if (!userId || !planId || !value || !reason) throw err('userId, planId, value, and reason are required', 400);
+  if (!['flat', 'percentage'].includes(valueType || 'flat')) throw err('valueType must be flat or percentage', 400);
+  return Adjustment.create({
+    userId, planId,
+    phaseNumber: phaseNumber || 'all',
+    type: 'credit',
+    valueType: valueType || 'flat',
+    value: Number(value),
+    description: description || 'Credit',
+    reason: String(reason).trim(),
+    status: 'approved',
+    appliedBy:  actor || {},
+    approvedBy: actor || {},
+    appliedAt:  new Date(),
+  });
+}
+
+async function addPenalty({ userId, planId, phaseNumber, valueType, value, description, reason, actor }) {
+  if (!userId || !planId || !value || !reason) throw err('userId, planId, value, and reason are required', 400);
+  if (!['flat', 'percentage'].includes(valueType || 'flat')) throw err('valueType must be flat or percentage', 400);
+  return Adjustment.create({
+    userId, planId,
+    phaseNumber: phaseNumber || 'all',
+    type: 'penalty',
+    valueType: valueType || 'flat',
+    value: Number(value),
+    description: description || 'Penalty',
+    reason: String(reason).trim(),
+    status: 'approved',
+    appliedBy:  actor || {},
+    approvedBy: actor || {},
+    appliedAt:  new Date(),
+  });
+}
+
+async function listAdjustments({ type, userId, planId, status, page = 1, limit = 50 } = {}) {
+  const q = {};
+  if (type)   q.type = type;
+  if (userId) q.userId = userId;
+  if (planId) q.planId = planId;
+  if (status) q.status = status;
+  const skip = (page - 1) * limit;
+  const [items, total] = await Promise.all([
+    Adjustment.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit)
+      .populate('userId', 'userId name email phone roomNumber'),
+    Adjustment.countDocuments(q),
+  ]);
+  return { items, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+}
+
+async function approveAdjustment(adjustmentId, actor) {
+  const adj = await Adjustment.findById(adjustmentId);
+  if (!adj) throw err('Adjustment not found', 404);
+  if (adj.status !== 'pending_approval') throw err(`Adjustment is already ${adj.status}`, 400);
+  adj.status = 'approved';
+  adj.approvedBy = actor || {};
+  adj.appliedAt = new Date();
+  await adj.save();
+  return adj;
+}
+
+async function rejectAdjustment(adjustmentId, reason, actor) {
+  const adj = await Adjustment.findById(adjustmentId);
+  if (!adj) throw err('Adjustment not found', 404);
+  if (adj.status !== 'pending_approval') throw err(`Adjustment is already ${adj.status}`, 400);
+  adj.status = 'rejected';
+  adj.approvedBy = actor || {};
+  adj.reason = `${adj.reason} | REJECTED: ${reason || 'No reason'}`;
+  await adj.save();
+  return adj;
+}
+
+async function previewAdjustment({ planId, phaseNumber, userId, type, valueType, value }) {
+  const engine = require('./adjustmentEngine');
+  const before = await engine.computePhaseAmount(planId, Number(phaseNumber), userId);
+  // Synthesize a hypothetical adjustment list including the proposed one
+  const PaymentPlan = require('../models/PaymentPlan');
+  const plan = await PaymentPlan.findById(planId);
+  if (!plan) throw err('Plan not found', 404);
+  const phase = plan.phases.find((p) => p.phaseNumber === Number(phaseNumber));
+  if (!phase) throw err('Phase not found', 404);
+
+  const existing = await Adjustment.find({
+    userId, planId,
+    phaseNumber: { $in: [Number(phaseNumber), 'all'] },
+    type: { $in: ['waiver', 'custom_charge', 'credit', 'penalty'] },
+    status: 'approved',
+  });
+  const proposed = { type, valueType: valueType || 'flat', value: Number(value), description: 'PREVIEW' };
+  const after = engine._compute({
+    plan: plan.toObject(),
+    phase,
+    discountRate: before.discountRate,
+    discountSource: before.discountSource,
+    adjustments: [...existing, proposed],
+  });
+  return { before, after, delta: after.finalAmount - before.finalAmount };
+}
+
 module.exports = {
   listPlans,
   getPlanDetail,
@@ -189,4 +289,10 @@ module.exports = {
   unlockPhase,
   addCustomCharge,
   addWaiver,
+  addCredit,
+  addPenalty,
+  listAdjustments,
+  approveAdjustment,
+  rejectAdjustment,
+  previewAdjustment,
 };

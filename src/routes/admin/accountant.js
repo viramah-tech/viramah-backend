@@ -18,5 +18,10 @@ router.get('/overdue',         ctrl.overdue);
 router.get('/ledger',          ctrl.ledger);
 router.get('/discount-impact', ctrl.discountImpact);
 router.get('/adjustments',     ctrl.adjustments);
+router.get('/ledger/:userId',  ctrl.userLedger);
+router.get('/aging',           ctrl.aging);
+router.get('/cashflow',        ctrl.cashFlow);
+router.get('/deposit-pipeline', ctrl.depositPipeline);
+router.get('/revenue-breakdown', ctrl.revenueBreakdown);
 
 module.exports = router;

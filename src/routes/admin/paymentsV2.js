@@ -18,6 +18,38 @@ const router = express.Router();
 router.use(protect, authorize('admin', 'accountant'));
 
 router.get('/', ctrl.list);
+router.get('/stats', ctrl.unifiedStats);
+
+// Bulk operations (before :paymentId wildcard)
+router.post('/bulk-approve',
+  [body('paymentIds').isArray({ min: 1, max: 50 }).withMessage('paymentIds must be an array of 1-50 items')],
+  validate,
+  auditLog('BULK_APPROVE_PAYMENT', 'payment'),
+  ctrl.bulkApprove
+);
+
+router.post('/bulk-reject',
+  [
+    body('paymentIds').isArray({ min: 1, max: 50 }).withMessage('paymentIds must be an array of 1-50 items'),
+    body('reason').trim().notEmpty().withMessage('reason is required'),
+  ],
+  validate,
+  auditLog('BULK_REJECT_PAYMENT', 'payment'),
+  ctrl.bulkReject
+);
+
+router.post('/manual',
+  [
+    body('userId').notEmpty(),
+    body('amount').isNumeric().custom((v) => v > 0),
+    body('transactionId').trim().notEmpty(),
+    body('receiptUrl').trim().notEmpty(),
+    body('paymentMethod').isIn(['UPI','NEFT','RTGS','IMPS','CASH','CHEQUE','OTHER']),
+  ],
+  validate,
+  ctrl.manual
+);
+
 router.get('/:paymentId', ctrl.detail);
 
 router.post('/:paymentId/approve',
@@ -36,18 +68,6 @@ router.post('/:paymentId/hold',
   [body('reason').trim().notEmpty().withMessage('reason is required')],
   validate,
   ctrl.hold
-);
-
-router.post('/manual',
-  [
-    body('userId').notEmpty(),
-    body('amount').isNumeric().custom((v) => v > 0),
-    body('transactionId').trim().notEmpty(),
-    body('receiptUrl').trim().notEmpty(),
-    body('paymentMethod').isIn(['UPI','NEFT','RTGS','IMPS','CASH','CHEQUE','OTHER']),
-  ],
-  validate,
-  ctrl.manual
 );
 
 module.exports = router;

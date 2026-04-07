@@ -37,4 +37,26 @@ module.exports = {
 
   waiver: wrap(async (req, res) =>
     success(res, await svc.addWaiver({ ...req.body, actor: actor(req) }), 'Waiver added', 201)),
+
+  credit: wrap(async (req, res) =>
+    success(res, await svc.addCredit({ ...req.body, actor: actor(req) }), 'Credit added', 201)),
+
+  penalty: wrap(async (req, res) =>
+    success(res, await svc.addPenalty({ ...req.body, actor: actor(req) }), 'Penalty added', 201)),
+
+  listAdjustments: wrap(async (req, res) =>
+    success(res, await svc.listAdjustments({
+      type: req.query.type, userId: req.query.userId, planId: req.query.planId,
+      status: req.query.status,
+      page: parseInt(req.query.page, 10) || 1, limit: parseInt(req.query.limit, 10) || 50,
+    }), 'Adjustments')),
+
+  approveAdjustment: wrap(async (req, res) =>
+    success(res, await svc.approveAdjustment(req.params.id, actor(req)), 'Adjustment approved')),
+
+  rejectAdjustment: wrap(async (req, res) =>
+    success(res, await svc.rejectAdjustment(req.params.id, req.body.reason, actor(req)), 'Adjustment rejected')),
+
+  previewAdjustment: wrap(async (req, res) =>
+    success(res, await svc.previewAdjustment(req.body), 'Adjustment preview')),
 };

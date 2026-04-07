@@ -229,23 +229,117 @@ async function holdPayment(paymentId, { reason, actor }) {
 
 // ── Manual offline payment ────────────────────────────────────────────────────
 
-async function recordManualPayment({ userId, planId, phaseNumber, amount, transactionId, receiptUrl, paymentMethod, description, actor }) {
+async function recordManualPayment({ userId, planId, phaseNumber, amount, transactionId, receiptUrl, paymentMethod, description, autoApprove = true, actor }) {
   if (!userId || !amount || !transactionId || !receiptUrl || !paymentMethod) {
     throw err('userId, amount, transactionId, receiptUrl, and paymentMethod are required', 400);
   }
+
+  // Dedup transactionId
+  const dup = await Payment.findOne({ transactionId: String(transactionId).trim() });
+  if (dup) throw err('A payment with this transaction ID already exists', 409);
+
+  // If planId is provided, compute breakdown via engine for audit trail
+  let computed = null;
+  let paymentType = 'manual_admin';
+  if (planId && phaseNumber) {
+    try {
+      computed = await engine.computePhaseAmount(planId, Number(phaseNumber), userId);
+    } catch (_) { /* non-critical — use manual amount */ }
+  }
+
   const payment = await Payment.create({
     userId,
     planId:    planId || null,
-    phaseNumber: phaseNumber || null,
-    paymentType: 'manual_admin',
-    amount,
-    transactionId, receiptUrl, paymentMethod, paymentMethodV2: paymentMethod,
+    phaseNumber: phaseNumber ? Number(phaseNumber) : null,
+    paymentType,
+    amount:               computed ? computed.finalAmount : amount,
+    grossRent:            computed?.grossRent || null,
+    discountAmount:       computed?.discountAmount || null,
+    netRent:              computed?.netRent || null,
+    nonRentalTotal:       computed?.nonRentalTotal || null,
+    advanceCreditApplied: computed?.advanceCreditApplied || null,
+    transactionId: String(transactionId).trim(),
+    receiptUrl:    String(receiptUrl).trim(),
+    paymentMethod,
+    paymentMethodV2: paymentMethod,
     description: description || 'Admin-recorded manual payment',
-    status: 'pending', // still goes through approval atomic flow
+    status: 'pending',
     submittedAt: new Date(),
   });
-  // Auto-approve since admin recorded it
-  return approvePayment(payment._id, actor);
+
+  if (autoApprove) {
+    return approvePayment(payment._id, actor);
+  }
+  return { payment, computed };
+}
+
+// ── Bulk approve ──────────────────────────────────────────────────────────────
+
+async function bulkApprove(paymentIds, actor) {
+  if (!Array.isArray(paymentIds) || paymentIds.length === 0) {
+    throw err('paymentIds must be a non-empty array', 400);
+  }
+  if (paymentIds.length > 50) {
+    throw err('Cannot bulk approve more than 50 payments at once', 400);
+  }
+
+  const results = { approved: [], failed: [] };
+  for (const id of paymentIds) {
+    try {
+      const result = await approvePayment(id, actor);
+      results.approved.push({ paymentId: id, amount: result.payment.amount });
+    } catch (e) {
+      results.failed.push({ paymentId: id, reason: e.message });
+    }
+  }
+  return results;
+}
+
+// ── Bulk reject ───────────────────────────────────────────────────────────────
+
+async function bulkReject(paymentIds, reason, actor) {
+  if (!Array.isArray(paymentIds) || paymentIds.length === 0) {
+    throw err('paymentIds must be a non-empty array', 400);
+  }
+  if (!reason || !String(reason).trim()) {
+    throw err('reason is required for bulk reject', 400);
+  }
+  if (paymentIds.length > 50) {
+    throw err('Cannot bulk reject more than 50 payments at once', 400);
+  }
+
+  const results = { rejected: [], failed: [] };
+  for (const id of paymentIds) {
+    try {
+      await rejectPayment(id, { reason, actor });
+      results.rejected.push({ paymentId: id });
+    } catch (e) {
+      results.failed.push({ paymentId: id, reason: e.message });
+    }
+  }
+  return results;
+}
+
+// ── Get payment summary stats (unified V1+V2) ────────────────────────────────
+
+async function getUnifiedStats() {
+  const [byStatus, totalCollected] = await Promise.all([
+    Payment.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 }, totalAmount: { $sum: '$amount' } } },
+    ]),
+    Payment.aggregate([
+      { $match: { status: 'approved' } },
+      { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
+    ]),
+  ]);
+
+  const stats = { total: 0, pending: 0, approved: 0, rejected: 0, on_hold: 0, upcoming: 0, disputed: 0, totalCollected: 0 };
+  byStatus.forEach((s) => {
+    stats[s._id] = s.count;
+    stats.total += s.count;
+  });
+  stats.totalCollected = totalCollected[0]?.total || 0;
+  return stats;
 }
 
 module.exports = {
@@ -255,4 +349,7 @@ module.exports = {
   rejectPayment,
   holdPayment,
   recordManualPayment,
+  bulkApprove,
+  bulkReject,
+  getUnifiedStats,
 };

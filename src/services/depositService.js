@@ -528,6 +528,230 @@ const getDepositOnlyStatus = async (userId) => {
   };
 };
 
+// ── adminCreateDeposit ────────────────────────────────────────────────────────
+
+/**
+ * Admin creates a deposit hold on behalf of a walk-in resident.
+ * Bypasses the onboarding check since admin is manually entering.
+ *
+ * @param {Object} params
+ * @param {string} params.userId
+ * @param {string} params.roomTypeId
+ * @param {string} params.paymentMode - 'full' | 'half' | 'deposit'
+ * @param {string} params.transactionId
+ * @param {string} params.receiptUrl
+ * @param {number} [params.totalAmount]
+ * @param {boolean} [params.autoApprove=false]
+ * @param {string} params.adminId
+ * @returns {Promise<RoomHold>}
+ */
+const adminCreateDeposit = async ({ userId, roomTypeId, paymentMode, transactionId, receiptUrl, totalAmount, autoApprove = false, adminId }) => {
+  if (!userId || !roomTypeId || !paymentMode) {
+    const err = new Error('userId, roomTypeId, and paymentMode are required.');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!['full', 'half', 'deposit'].includes(paymentMode)) {
+    const err = new Error('paymentMode must be "full", "half", or "deposit".');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Block if user already has active/pending hold
+  const existing = await RoomHold.findOne({
+    userId,
+    status: { $in: ['pending_approval', 'active'] },
+  });
+  if (existing) {
+    const err = new Error('User already has an active or pending deposit hold.');
+    err.statusCode = 409;
+    throw err;
+  }
+
+  const roomType = await RoomType.findById(roomTypeId);
+  if (!roomType) {
+    const err = new Error('Room type not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const { DEPOSIT_AMOUNT, REGISTRATION_FEE, TOTAL_DEPOSIT_PAYMENT } = await getDepositConstants();
+  const isDepositOnly = paymentMode === 'deposit';
+  const effectiveTotalAmount = isDepositOnly
+    ? Math.max(totalAmount || TOTAL_DEPOSIT_PAYMENT, TOTAL_DEPOSIT_PAYMENT)
+    : 0;
+  const advanceAmount = isDepositOnly
+    ? Math.max(0, effectiveTotalAmount - TOTAL_DEPOSIT_PAYMENT)
+    : 0;
+
+  const hold = await RoomHold.create({
+    userId,
+    roomTypeId,
+    paymentMode,
+    depositAmount:        DEPOSIT_AMOUNT,
+    registrationFeePaid:  isDepositOnly ? REGISTRATION_FEE : 0,
+    advanceAmount,
+    totalPaidAtDeposit:   effectiveTotalAmount,
+    depositTransactionId: transactionId || '',
+    depositReceiptUrl:    receiptUrl || '',
+    status:               'pending_approval',
+  });
+
+  auditLog('ADMIN_DEPOSIT_CREATED', {
+    holdId: hold._id, userId, roomTypeId, paymentMode, adminId,
+    totalPaidAtDeposit: hold.totalPaidAtDeposit,
+  });
+
+  // Auto-approve if requested
+  if (autoApprove) {
+    return approveDeposit(hold._id.toString(), adminId);
+  }
+
+  return hold;
+};
+
+// ── extendDeadline ────────────────────────────────────────────────────────────
+
+/**
+ * Admin extends refund and/or payment deadlines for an active hold.
+ *
+ * @param {string} holdId
+ * @param {Object} dates
+ * @param {string} [dates.newRefundDeadline]  - ISO date string
+ * @param {string} [dates.newPaymentDeadline] - ISO date string
+ * @param {string} reason - Admin must provide a reason
+ * @param {string} adminId
+ * @returns {Promise<RoomHold>}
+ */
+const extendDeadline = async (holdId, { newRefundDeadline, newPaymentDeadline }, reason, adminId) => {
+  if (!newRefundDeadline && !newPaymentDeadline) {
+    const err = new Error('At least one deadline must be provided.');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!reason || String(reason).trim().length < 5) {
+    const err = new Error('A reason for the extension is required (min 5 chars).');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const hold = await RoomHold.findById(holdId);
+  if (!hold) {
+    const err = new Error('Room hold not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (hold.status !== 'active') {
+    const err = new Error(`Cannot extend deadlines on a hold with status '${hold.status}'.`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const prev = {
+    refundDeadline:  hold.refundDeadline,
+    paymentDeadline: hold.paymentDeadline,
+  };
+
+  if (newRefundDeadline)  hold.refundDeadline  = new Date(newRefundDeadline);
+  if (newPaymentDeadline) hold.paymentDeadline = new Date(newPaymentDeadline);
+  await hold.save();
+
+  auditLog('DEADLINE_EXTENDED', {
+    holdId: hold._id,
+    userId: hold.userId,
+    adminId,
+    reason,
+    previous: prev,
+    updated: {
+      refundDeadline:  hold.refundDeadline,
+      paymentDeadline: hold.paymentDeadline,
+    },
+  });
+
+  return hold;
+};
+
+// ── forceExpire ───────────────────────────────────────────────────────────────
+
+/**
+ * Admin force-expires an active hold. Room seat is released.
+ *
+ * @param {string} holdId
+ * @param {string} reason
+ * @param {string} adminId
+ * @returns {Promise<RoomHold>}
+ */
+const forceExpire = async (holdId, reason, adminId) => {
+  if (!reason || String(reason).trim().length < 5) {
+    const err = new Error('A reason is required for force expiry (min 5 chars).');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const hold = await RoomHold.findById(holdId);
+  if (!hold) {
+    const err = new Error('Room hold not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (!['pending_approval', 'active'].includes(hold.status)) {
+    const err = new Error(`Cannot expire a hold with status '${hold.status}'.`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const wasActive = hold.status === 'active';
+  hold.status    = 'expired';
+  hold.expiredAt = new Date();
+  await hold.save();
+
+  // Release seat only if hold was active (seat was already reserved)
+  if (wasActive) {
+    await RoomType.findByIdAndUpdate(hold.roomTypeId, {
+      $inc: { bookedSeats: -1 },
+    });
+  }
+
+  auditLog('HOLD_FORCE_EXPIRED', {
+    holdId: hold._id,
+    userId: hold.userId,
+    adminId,
+    reason,
+    previousStatus: wasActive ? 'active' : 'pending_approval',
+  });
+
+  return hold;
+};
+
+// ── getDepositFinancialSummary ────────────────────────────────────────────────
+
+/**
+ * Enhanced financial summary for the deposit dashboard.
+ */
+const getDepositFinancialSummary = async () => {
+  const [pipeline] = await RoomHold.aggregate([
+    {
+      $group: {
+        _id: null,
+        pending:          { $sum: { $cond: [{ $eq: ['$status', 'pending_approval'] }, 1, 0] } },
+        active:           { $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] } },
+        converted:        { $sum: { $cond: [{ $eq: ['$status', 'converted'] }, 1, 0] } },
+        refunded:         { $sum: { $cond: [{ $eq: ['$status', 'refunded'] }, 1, 0] } },
+        expired:          { $sum: { $cond: [{ $eq: ['$status', 'expired'] }, 1, 0] } },
+        totalDepositsHeld:    { $sum: { $cond: [{ $eq: ['$status', 'active'] }, '$depositAmount', 0] } },
+        totalRefundedAmount:  { $sum: { $cond: [{ $eq: ['$status', 'refunded'] }, '$depositAmount', 0] } },
+        totalConvertedAmount: { $sum: { $cond: [{ $eq: ['$status', 'converted'] }, '$depositAmount', 0] } },
+        totalAdvanceCollected: { $sum: { $cond: [{ $in: ['$status', ['active', 'converted']] }, '$advanceAmount', 0] } },
+      },
+    },
+  ]);
+
+  return pipeline || {
+    pending: 0, active: 0, converted: 0, refunded: 0, expired: 0,
+    totalDepositsHeld: 0, totalRefundedAmount: 0, totalConvertedAmount: 0, totalAdvanceCollected: 0,
+  };
+};
+
 module.exports = {
   initiateDeposit,
   approveDeposit,
@@ -539,4 +763,8 @@ module.exports = {
   expireOverdueHolds,
   getHoldStatus,
   getDepositOnlyStatus,
+  adminCreateDeposit,
+  extendDeadline,
+  forceExpire,
+  getDepositFinancialSummary,
 };

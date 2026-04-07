@@ -223,7 +223,6 @@ const rejectRefund = async (req, res) => {
 // ── POST /api/admin/deposits/expire-holds ────────────────────────────────────
 /**
  * Manually trigger hold expiry (intended for testing; in production use cron).
- * TODO: Remove manual trigger after cron is implemented.
  */
 const triggerExpireHolds = async (req, res) => {
   try {
@@ -231,6 +230,81 @@ const triggerExpireHolds = async (req, res) => {
     return success(res, { expiredCount: count }, `Expired ${count} overdue hold(s).`);
   } catch (err) {
     return error(res, err.message, err.statusCode || 500);
+  }
+};
+
+// ── POST /api/admin/deposits/create ──────────────────────────────────────────
+/**
+ * Admin creates a deposit on behalf of a walk-in resident.
+ */
+const adminCreateDeposit = async (req, res) => {
+  try {
+    const { userId, roomTypeId, paymentMode, transactionId, receiptUrl, totalAmount, autoApprove } = req.body;
+    const adminId = req.user._id;
+
+    const hold = await depositService.adminCreateDeposit({
+      userId, roomTypeId, paymentMode, transactionId, receiptUrl, totalAmount,
+      autoApprove: autoApprove === true,
+      adminId,
+    });
+
+    return success(res, { hold }, autoApprove ? 'Deposit created and approved.' : 'Deposit created (pending approval).', 201);
+  } catch (err) {
+    return error(res, err.message, err.statusCode || 500);
+  }
+};
+
+// ── PATCH /api/admin/deposits/:holdId/extend-deadline ────────────────────────
+/**
+ * Admin extends refund and/or payment deadlines on an active hold.
+ */
+const extendDeadline = async (req, res) => {
+  try {
+    const { holdId } = req.params;
+    const adminId    = req.user._id;
+    const { newRefundDeadline, newPaymentDeadline, reason } = req.body;
+
+    const hold = await depositService.extendDeadline(
+      holdId,
+      { newRefundDeadline, newPaymentDeadline },
+      reason,
+      adminId
+    );
+
+    return success(res, { hold }, 'Deadline(s) extended successfully.');
+  } catch (err) {
+    return error(res, err.message, err.statusCode || 500);
+  }
+};
+
+// ── PATCH /api/admin/deposits/:holdId/force-expire ───────────────────────────
+/**
+ * Admin force-expires a hold. Room seat is released.
+ */
+const forceExpireHold = async (req, res) => {
+  try {
+    const { holdId } = req.params;
+    const adminId    = req.user._id;
+    const { reason } = req.body;
+
+    const hold = await depositService.forceExpire(holdId, reason, adminId);
+
+    return success(res, { hold }, 'Hold force-expired. Room seat released.');
+  } catch (err) {
+    return error(res, err.message, err.statusCode || 500);
+  }
+};
+
+// ── GET /api/admin/deposits/financial-summary ────────────────────────────────
+/**
+ * Enhanced financial summary with monetary totals.
+ */
+const getFinancialSummary = async (req, res) => {
+  try {
+    const summary = await depositService.getDepositFinancialSummary();
+    return success(res, summary, 'Deposit financial summary.');
+  } catch (err) {
+    return error(res, err.message, 500);
   }
 };
 
@@ -242,4 +316,8 @@ module.exports = {
   approveRefund,
   rejectRefund,
   triggerExpireHolds,
+  adminCreateDeposit,
+  extendDeadline,
+  forceExpireHold,
+  getFinancialSummary,
 };
