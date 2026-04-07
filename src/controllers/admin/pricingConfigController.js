@@ -1,6 +1,8 @@
 'use strict';
 
 const { PricingConfig } = require('../../models/PricingConfig');
+const AuditLog = require('../../models/AuditLog');
+const { invalidateConfigCache } = require('../../services/pricingService');
 const { success, error } = require('../../utils/apiResponse');
 
 const wrap = (fn) => async (req, res, next) => {
@@ -35,6 +37,25 @@ module.exports = {
       }
     }
     await cfg.save();
+
+    // C3 FIX: Bust the in-memory pricing cache so all subsequent computations
+    // use the newly saved values immediately (not stale for up to 60 seconds).
+    invalidateConfigCache();
+
+    // C4 FIX: Write an AuditLog entry so pricing changes are auditable.
+    await AuditLog.create({
+      userId:     req.user?._id || null,
+      userName:   req.user?.name || '',
+      userRole:   req.user?.role || '',
+      action:     'PRICING_CONFIG_UPDATED',
+      resource:   'pricing_config',
+      resourceId: String(cfg._id),
+      method:     'PATCH',
+      path:       req.originalUrl || '/api/admin/pricing',
+      requestBody: { changed: Object.keys(previous), previous },
+      statusCode: 200,
+    });
+
     return success(res, { config: cfg, previous, changedBy: req.user?.name || '' }, 'Pricing updated');
   }),
 

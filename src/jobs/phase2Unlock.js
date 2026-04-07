@@ -72,6 +72,52 @@ async function runPhase2UnlockJob() {
         finalAmount: computed.finalAmount,
       });
 
+      // R5.5: Send Phase 2 unlock email notification (non-blocking)
+      try {
+        const User = require('../models/User');
+        const user = await User.findById(plan.userId).select('name email userId').lean();
+        if (user?.email) {
+          const { sendEmail } = require('../services/emailService');
+          const firstName = (user.name || 'there').split(' ')[0];
+          const dueDateStr = phase2.dueDate
+            ? new Date(phase2.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
+            : 'soon';
+          await sendEmail({
+            to: user.email,
+            subject: 'Phase 2 Payment Now Due — Viramah Student Living',
+            html: `
+            <div style="font-family: 'Inter', Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
+              <div style="background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%); border-radius: 12px; padding: 32px; color: #fff; margin-bottom: 24px;">
+                <h1 style="margin: 0 0 8px; font-size: 22px;">Phase 2 Payment Unlocked</h1>
+                <p style="margin: 0; opacity: 0.8;">Viramah Student Living</p>
+              </div>
+              <div style="padding: 0 8px;">
+                <p style="font-size: 16px; color: #334155;">Hi ${firstName},</p>
+                <p style="font-size: 15px; color: #475569; line-height: 1.6;">
+                  Your <strong>Phase 2 payment</strong> is now active. Please pay
+                  <strong style="color: #0f766e;">₹${(computed.finalAmount || 0).toLocaleString('en-IN')}</strong>
+                  by <strong>${dueDateStr}</strong>.
+                </p>
+                <p style="font-size: 15px; color: #475569;">
+                  Submit your payment along with the transaction receipt through the app.
+                </p>
+                <div style="margin: 24px 0; text-align: center;">
+                  <a href="${process.env.FRONTEND_URL || 'https://app.viramahstay.com'}/user-onboarding"
+                     style="display: inline-block; background: #0f766e; color: #fff; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+                    Make Payment →
+                  </a>
+                </div>
+              </div>
+              <div style="border-top: 1px solid #e2e8f0; margin-top: 32px; padding-top: 16px; font-size: 12px; color: #94a3b8; text-align: center;">
+                Viramah Student Living
+              </div>
+            </div>`,
+          });
+        }
+      } catch (emailErr) {
+        console.error(`[phase2Unlock] Email notification failed for plan ${plan._id} (non-fatal):`, emailErr.message);
+      }
+
       // Audit log
       await AuditLog.create({
         userId:    null,

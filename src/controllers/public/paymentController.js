@@ -130,52 +130,8 @@ const calculatePreview = async (req, res, next) => {
   }
 };
 
-// ── Initiate Payment (POST, auth required) ────────────────────────────────────
-
-/**
- * POST /api/public/payments/initiate
- *
- * Resident submits payment intent. Server calculates ALL amounts — no frontend
- * amount is trusted. Returns the breakdown for confirmation display only.
- *
- * Body: { paymentMode, addOns: { transport, mess, messLumpSum }, referralCode?,
- *         paymentMethod, transactionId, receiptUrl, description? }
- *
- * @route POST /api/public/payments/initiate
- * @access Private (resident)
- */
-const initiatePayment = async (req, res, next) => {
-  try {
-    const {
-      paymentMode,
-      addOns        = {},
-      referralCode   = null,
-      paymentMethod,
-      transactionId,
-      receiptUrl,
-      description,
-    } = req.body;
-
-    const userId = req.user._id;
-
-    const { payment, payment2, breakdown } = await paymentService.initiatePayment(
-      userId,
-      { paymentMode, addOns, referralCode, paymentMethod, transactionId, receiptUrl, description }
-    );
-
-    return success(
-      res,
-      { payment, payment2, breakdown },
-      'Payment submitted — awaiting verification',
-      201
-    );
-  } catch (err) {
-    if (err.statusCode) {
-      return error(res, err.message, err.statusCode);
-    }
-    next(err);
-  }
-};
+// initiatePayment removed — resident payment submission lives in
+// controllers/public/paymentSubmitController.js (POST /api/payment/submit).
 
 // ── Get My Payments (GET, auth required) ─────────────────────────────────────
 
@@ -284,7 +240,6 @@ const validateReferral = async (req, res, next) => {
 module.exports = {
   calculatePreview,
   getPricingConstants,
-  initiatePayment,
   getMyPayments,
   getUpcomingInstallments,
   getPaymentById,

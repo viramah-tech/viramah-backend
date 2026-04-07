@@ -198,6 +198,47 @@ async function rejectPayment(paymentId, { reason, actor }) {
     reviewedBy:  actor || null,
   });
 
+  // R5.5: Send rejection notification email (non-blocking)
+  try {
+    const User = require('../models/User');
+    const user = await User.findById(payment.userId).select('name email userId').lean();
+    if (user?.email) {
+      const { sendEmail } = require('./emailService');
+      const firstName = (user.name || 'there').split(' ')[0];
+      await sendEmail({
+        to: user.email,
+        subject: 'Payment Update — Viramah Student Living',
+        html: `
+        <div style="font-family: 'Inter', Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
+          <div style="background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 12px; padding: 32px; color: #fff; margin-bottom: 24px;">
+            <h1 style="margin: 0 0 8px; font-size: 22px;">Payment Update</h1>
+            <p style="margin: 0; opacity: 0.8;">Viramah Student Living</p>
+          </div>
+          <div style="padding: 0 8px;">
+            <p style="font-size: 16px; color: #334155;">Hi ${firstName},</p>
+            <p style="font-size: 15px; color: #475569; line-height: 1.6;">
+              Your payment of <strong>₹${(payment.amount || 0).toLocaleString('en-IN')}</strong> has been
+              <strong style="color: #dc2626;">not approved</strong>.
+            </p>
+            <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 16px 0;">
+              <p style="margin: 0; color: #991b1b; font-size: 14px;">
+                <strong>Reason:</strong> ${payment.reviewRemarks || 'Please contact admin for details.'}
+              </p>
+            </div>
+            <p style="font-size: 15px; color: #475569;">
+              If you believe this is an error, please contact the admin team. You may re-submit your payment with the correct details.
+            </p>
+          </div>
+          <div style="border-top: 1px solid #e2e8f0; margin-top: 32px; padding-top: 16px; font-size: 12px; color: #94a3b8; text-align: center;">
+            Viramah Student Living
+          </div>
+        </div>`,
+      });
+    }
+  } catch (emailErr) {
+    console.error('[rejectPayment] Notification email failed (non-fatal):', emailErr.message);
+  }
+
   await AuditLog.create({
     userId: actor?.userId || null, userName: actor?.name || '', userRole: actor?.role || '',
     action: 'PAYMENT_REJECTED', resource: 'payment', resourceId: String(payment._id),

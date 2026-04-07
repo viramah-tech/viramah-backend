@@ -20,6 +20,10 @@ const paymentV2Routes = require('./src/routes/paymentV2');
 const { initializeSocket } = require('./src/services/socketService');
 const { seedPricingConfig } = require('./src/models/PricingConfig');
 const { registerPhase2UnlockJob } = require('./src/jobs/phase2Unlock');
+const { registerOrphanReconciler } = require('./src/jobs/orphanReconciler');
+const { registerOverdueMarker } = require('./src/jobs/overdueMarker');
+const { registerDepositExpiry } = require('./src/jobs/depositExpiry');
+const { registerPaymentReminders } = require('./src/jobs/paymentReminders');
 
 const app = express();
 
@@ -133,6 +137,18 @@ const start = async () => {
 
   // Phase 2 unlock scheduler — runs daily at 00:01 AM IST (Plan Section 8)
   registerPhase2UnlockJob();
+
+  // C2 FIX: Orphan payment reconciler — startup + daily at 02:00 AM IST
+  registerOrphanReconciler();
+
+  // R5.2: Overdue phase auto-marker — daily at 00:30 AM IST
+  registerOverdueMarker();
+
+  // R5.6: Deposit hold expiry — daily at 02:30 AM IST
+  registerDepositExpiry();
+
+  // R5.1 + R5.5: Payment reminders — daily at 08:00 AM IST
+  registerPaymentReminders();
 
   server.listen(PORT, () => {
     console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);

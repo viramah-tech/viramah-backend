@@ -9,7 +9,6 @@ const { authorize } = require('../../middleware/roleAuth');
 const {
   calculatePreview,
   getPricingConstants,
-  initiatePayment,
   getMyPayments,
   getUpcomingInstallments,
   getPaymentById,
@@ -67,55 +66,9 @@ router.get('/pricing-config', getPricingConstants);
 // ── Protected routes — require resident auth ───────────────────────────────────
 router.use(protect, authorize('user', 'resident'));
 
-// ── Initiate Payment ──────────────────────────────────────────────────────────
-router.post(
-  '/initiate',
-  [
-    body('paymentMode')
-      .isIn(['full', 'half'])
-      .withMessage('paymentMode must be "full" or "half"'),
-    body('addOns.transport')
-      .optional()
-      .isBoolean()
-      .withMessage('addOns.transport must be a boolean'),
-    body('addOns.mess')
-      .optional()
-      .isBoolean()
-      .withMessage('addOns.mess must be a boolean'),
-    body('addOns.messLumpSum')
-      .optional()
-      .isBoolean()
-      .withMessage('addOns.messLumpSum must be a boolean')
-      .custom((val, { req }) => {
-        if (val === true || val === 'true') {
-          if (req.body.paymentMode !== 'full') {
-            throw new Error('messLumpSum is only valid when paymentMode is "full"');
-          }
-          if (!req.body.addOns?.mess) {
-            throw new Error('messLumpSum requires mess add-on to also be selected');
-          }
-        }
-        return true;
-      }),
-    body('referralCode')
-      .optional({ nullable: true })
-      .if(body('referralCode').notEmpty())
-      .matches(/^VIR-[A-Z0-9]{6}$/i)
-      .withMessage('Referral code must be in format VIR-XXXXXX'),
-    body('paymentMethod')
-      .trim()
-      .notEmpty()
-      .withMessage('paymentMethod is required'),
-    body('transactionId')
-      .optional({ nullable: true })
-      .trim(),
-    body('receiptUrl')
-      .optional({ nullable: true })
-      .trim(),
-  ],
-  validate,
-  initiatePayment
-);
+// NOTE: POST /initiate removed — resident payment submission migrated to
+// /api/payment/submit (paymentSubmitController). Read-only resident endpoints
+// (my-payments, upcoming, :id) remain until payment-status/page.tsx migrates.
 
 // ── My Payments ───────────────────────────────────────────────────────────────
 router.get('/my-payments', getMyPayments);
