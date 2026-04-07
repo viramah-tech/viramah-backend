@@ -156,6 +156,11 @@ async function getConfig() {
 
 /**
  * POST /api/payment/plan/select-track — Track 1 or Track 2.
+ *
+ * PREVIEW ONLY. No PaymentPlan is persisted here. The plan is materialised
+ * atomically with the first Payment by paymentSubmitService.submitPayment.
+ * The client must re-send `{ trackId, addOns }` inside `trackSelection`
+ * when posting the first payment.
  */
 async function selectTrack(userId, { trackId, addOns = {} }) {
   if (!['full', 'twopart'].includes(trackId)) {
@@ -167,18 +172,10 @@ async function selectTrack(userId, { trackId, addOns = {} }) {
     throw err('Complete onboarding before selecting a track', 422);
   }
 
-  // Reject if user already has an active plan with submitted payments
-  // If no payments exist, cancel the old plan to allow re-selection
+  // If an active (already-persisted) plan exists, the user is past first payment.
   const existing = await PaymentPlan.findOne({ userId, status: 'active' });
   if (existing) {
-    const paymentExists = await Payment.findOne({ planId: existing._id, status: { $in: ['pending', 'approved'] } });
-    if (paymentExists) {
-      throw err('An active payment plan with submitted payments already exists for this user', 409);
-    } else {
-      existing.status = 'cancelled';
-      existing.cancelledReason = 'User replaced the track before making any payment';
-      await existing.save();
-    }
+    throw err('An active payment plan already exists for this user', 409);
   }
 
   const components = await buildComponents(user, { addOns });
@@ -186,7 +183,7 @@ async function selectTrack(userId, { trackId, addOns = {} }) {
 
   const hold = await RoomHold.findOne({ userId }).sort({ createdAt: -1 });
 
-  const plan = await PaymentPlan.create({
+  const previewPlan = {
     userId,
     bookingId: hold?._id || null,
     roomId:    user.roomTypeId,
@@ -194,37 +191,49 @@ async function selectTrack(userId, { trackId, addOns = {} }) {
     chosenTrackId: trackId,
     components,
     phases,
-    createdBy: { userId, role: 'resident' },
-  });
+    advanceCreditTotal:     0,
+    advanceCreditConsumed:  0,
+    advanceCreditRemaining: 0,
+  };
 
-  return plan;
+  const phasesWithBreakdown = [];
+  for (const phase of phases) {
+    if (phase.status === 'locked' && !phase.dueDate) {
+      phasesWithBreakdown.push({ ...phase, computed: null });
+      continue;
+    }
+    const computed = await engine.computePhaseAmountFromPlan(previewPlan, phase.phaseNumber, userId);
+    phasesWithBreakdown.push({ ...phase, computed });
+  }
+
+  return {
+    preview: true,
+    ...previewPlan,
+    phases: phasesWithBreakdown,
+    trackSelection: { trackId, addOns }, // echo back for client to re-send on submit
+  };
 }
 
 /**
  * POST /api/payment/plan/booking — Track 3 initial booking.
+ *
+ * PREVIEW ONLY. No PaymentPlan is persisted here. See selectTrack note.
+ * The client must re-send `{ trackId: 'booking', addOns, advance }` inside
+ * `trackSelection` when posting the first booking payment.
  */
 async function createBookingPlan(userId, { addOns = {}, advance = 0 } = {}) {
   const user = await User.findById(userId);
   if (!user) throw err('User not found', 404);
 
-  // Reject if user already has an active plan with submitted payments
-  // If no payments exist, cancel the old plan to allow re-selection
   const existing = await PaymentPlan.findOne({ userId, status: 'active' });
   if (existing) {
-    const paymentExists = await Payment.findOne({ planId: existing._id, status: { $in: ['pending', 'approved'] } });
-    if (paymentExists) {
-      throw err('An active payment plan with submitted payments already exists for this user', 409);
-    } else {
-      existing.status = 'cancelled';
-      existing.cancelledReason = 'User replaced the track before making any payment';
-      await existing.save();
-    }
+    throw err('An active payment plan already exists for this user', 409);
   }
 
   const components = await buildComponents(user, { addOns });
   const hold = await RoomHold.findOne({ userId }).sort({ createdAt: -1 });
 
-  const plan = await PaymentPlan.create({
+  const previewPlan = {
     userId,
     bookingId: hold?._id || null,
     roomId: user.roomTypeId,
@@ -235,10 +244,16 @@ async function createBookingPlan(userId, { addOns = {}, advance = 0 } = {}) {
     advanceCreditConsumed:  0,
     advanceCreditRemaining: advance,
     phases: [],
-    createdBy: { userId, role: 'resident' },
-  });
+  };
 
-  return plan;
+  const bookingAmount = engine.computeBookingAmountFromPlan(previewPlan);
+
+  return {
+    preview: true,
+    ...previewPlan,
+    bookingAmount,
+    trackSelection: { trackId: 'booking', addOns, advance },
+  };
 }
 
 /**
@@ -252,13 +267,36 @@ async function upgradeTrack(userId, { trackId }) {
   const plan = await PaymentPlan.findOne({ userId, status: 'active', trackId: 'booking' });
   if (!plan) throw err('No active booking plan to upgrade', 404);
 
+  // ── Deadline enforcement ──────────────────────────────────────────────────
+  const cfg = await pricingService.getPricingConfig();
+  const deadlineDays = cfg.bookingUpgradeDeadlineDays || 30;
+  const deadline = new Date(plan.createdAt);
+  deadline.setDate(deadline.getDate() + deadlineDays);
+  if (Date.now() > deadline.getTime()) {
+    throw err(`Booking upgrade deadline (${deadline.toISOString()}) has passed`, 409);
+  }
+
   const alreadyCollected = ['security', 'registration'];
   const phases = buildPhasesFor(trackId, plan.components, { alreadyCollected });
 
   plan.chosenTrackId = trackId;
   plan.phases        = phases;
-  // trackId stays as 'booking' historically? No — plan says once upgraded the plan becomes trackId+chosenTrackId.
-  // We keep trackId='booking' to remember origin and use chosenTrackId for the engine.
+
+  // Snapshot finalAmount onto each new phase so the partial-payment approval
+  // logic has a reliable phase total to compare against.
+  const planObj = plan.toObject();
+  planObj.chosenTrackId = trackId;
+  planObj.phases = phases;
+  for (const ph of plan.phases) {
+    if (ph.status === 'locked' && !ph.dueDate) continue;
+    try {
+      const c = await engine.computePhaseAmountFromPlan(planObj, ph.phaseNumber, userId);
+      ph.finalAmount = c.finalAmount;
+    } catch (_) {
+      ph.finalAmount = 0;
+    }
+  }
+
   await plan.save();
   return plan;
 }
@@ -308,4 +346,7 @@ module.exports = {
   upgradeTrack,
   getMyPlan,
   getPhaseBreakdown,
+  // Internal helpers exposed for atomic plan-on-first-payment creation
+  buildComponents,
+  buildPhasesFor,
 };

@@ -84,8 +84,11 @@ function _compute({ plan, phase, discountRate, discountSource, adjustments = [] 
   const preCreditTotal   = netRent + nonRentalTotal + adjustmentTotal;
   const advanceCreditApplied = Math.min(advanceAvailable, Math.max(0, preCreditTotal));
 
-  // Step 6 — final amount
+  // Step 6 — final amount (full phase total), and amount still due after
+  // subtracting any partial payments already approved against this phase.
   const finalAmount = preCreditTotal - advanceCreditApplied;
+  const alreadyPaid = Math.max(0, phase.amountPaid || 0);
+  const amountDue   = Math.max(0, finalAmount - alreadyPaid);
 
   // Step 7 — breakdown for UI
   const breakdown = [
@@ -115,8 +118,54 @@ function _compute({ plan, phase, discountRate, discountSource, adjustments = [] 
     adjustmentTotal,
     advanceCreditApplied,
     finalAmount,
+    amountPaid: alreadyPaid,
+    amountDue,
     breakdown,
   };
+}
+
+/**
+ * Resolves effective discount rate + source for a given plan + user.
+ * Shared by persisted and in-memory (preview) phase computation.
+ */
+async function _resolveDiscount(plan, userId) {
+  const override = await Adjustment.findOne({
+    userId,
+    type: 'discount_override',
+    status: 'approved',
+  }).sort({ createdAt: -1 });
+
+  const trackForDiscount = plan.chosenTrackId || plan.trackId;
+  const global = trackForDiscount === 'booking'
+    ? null
+    : await DiscountConfig.findOne({ trackId: trackForDiscount });
+
+  let discountRate   = 0;
+  let discountSource = 'global';
+  if (override) {
+    discountRate   = override.newDiscountRate || 0;
+    discountSource = 'per_user_override';
+  } else if (global?.isActive) {
+    discountRate   = global.defaultDiscountRate || 0;
+  }
+  return { discountRate, discountSource };
+}
+
+/**
+ * Pure entry point — computes a phase amount from an in-memory plan object.
+ * Used for PREVIEW before the plan has been persisted (first-payment flow).
+ * No plan-linked adjustments are loaded because there is no planId yet;
+ * only per-user discount overrides apply.
+ */
+async function computePhaseAmountFromPlan(plan, phaseNumber, userId) {
+  const phase = (plan.phases || []).find((p) => p.phaseNumber === phaseNumber);
+  if (!phase) {
+    const err = new Error(`Phase ${phaseNumber} not found on in-memory plan`);
+    err.statusCode = 404;
+    throw err;
+  }
+  const { discountRate, discountSource } = await _resolveDiscount(plan, userId);
+  return _compute({ plan, phase, discountRate, discountSource, adjustments: [] });
 }
 
 /**
@@ -137,26 +186,7 @@ async function computePhaseAmount(planId, phaseNumber, userId) {
     throw err;
   }
 
-  // Effective discount — per-user override wins over global
-  const override = await Adjustment.findOne({
-    userId,
-    type: 'discount_override',
-    status: 'approved',
-  }).sort({ createdAt: -1 });
-
-  const trackForDiscount = plan.chosenTrackId || plan.trackId;
-  const global = trackForDiscount === 'booking'
-    ? null
-    : await DiscountConfig.findOne({ trackId: trackForDiscount });
-
-  let discountRate   = 0;
-  let discountSource = 'global';
-  if (override) {
-    discountRate   = override.newDiscountRate || 0;
-    discountSource = 'per_user_override';
-  } else if (global?.isActive) {
-    discountRate   = global.defaultDiscountRate || 0;
-  }
+  const { discountRate, discountSource } = await _resolveDiscount(plan, userId);
 
   // Approved monetary adjustments for this phase
   const adjustments = await Adjustment.find({
@@ -174,6 +204,39 @@ async function computePhaseAmount(planId, phaseNumber, userId) {
     discountSource,
     adjustments,
   });
+}
+
+/**
+ * Pure entry point — Track 3 booking amount from an in-memory plan object.
+ */
+function computeBookingAmountFromPlan(plan) {
+  const security     = plan.components.securityDeposit     || 0;
+  const registration = plan.components.registrationCharges || 0;
+  const advance      = plan.advanceCreditTotal              || 0;
+  const finalAmount  = security + registration + advance;
+
+  const breakdown = [
+    { label: 'Security deposit',     amount: security,     type: 'charge' },
+    { label: 'Registration charges', amount: registration, type: 'charge' },
+  ];
+  if (advance > 0) {
+    breakdown.push({ label: 'Advance payment (credit)', amount: advance, type: 'charge' });
+  }
+  breakdown.push({ label: 'Total payable', amount: finalAmount, type: 'total' });
+
+  return {
+    grossRent: 0,
+    discountRate: 0,
+    discountSource: 'global',
+    discountAmount: 0,
+    netRent: 0,
+    nonRentalTotal: security + registration,
+    adjustmentTotal: 0,
+    advanceCreditApplied: 0,
+    advancePrepaid: advance,
+    finalAmount,
+    breakdown,
+  };
 }
 
 /**
@@ -219,5 +282,7 @@ async function computeBookingAmount(planId) {
 module.exports = {
   computePhaseAmount,
   computeBookingAmount,
+  computePhaseAmountFromPlan,
+  computeBookingAmountFromPlan,
   _compute, // exported for unit tests
 };

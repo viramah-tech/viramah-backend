@@ -52,6 +52,19 @@ const pricingConfigSchema = new mongoose.Schema(
     /** Number of months in installment 1 (half-pay mode) */
     installment1Months: { type: Number, default: 6, min: 1 },
 
+    /**
+     * Deadline (in days from booking creation) for a Track 3 booking plan to
+     * upgrade to Full or Two-Part. After this window, upgradeTrack is rejected.
+     */
+    bookingUpgradeDeadlineDays: { type: Number, default: 30, min: 1 },
+
+    /**
+     * Deadline (in days from plan creation / first submission) for completing
+     * Phase 1 payment. After this window, new submissions against Phase 1 are
+     * rejected and the phase becomes overdue.
+     */
+    phase1DeadlineDays: { type: Number, default: 15, min: 1 },
+
     /** Current T&C and Privacy Policy versions (avoid hardcoding in controllers) */
     currentTermsVersion:   { type: String, default: 'v1.0' },
     currentPrivacyVersion: { type: String, default: 'v1.0' },

@@ -17,6 +17,7 @@ const ALLOWED_FIELDS = [
   'registrationFee', 'securityDeposit', 'gstRate', 'transportMonthly',
   'messMonthly', 'messLumpSum', 'discountFull', 'discountHalf',
   'referralBonus', 'tenureMonths', 'installment1Months',
+  'bookingUpgradeDeadlineDays', 'phase1DeadlineDays',
 ];
 
 module.exports = {

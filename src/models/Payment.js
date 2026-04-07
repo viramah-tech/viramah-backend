@@ -70,6 +70,9 @@ const paymentSchema = new mongoose.Schema(
     /** Amount of security deposit already paid that was credited against this payment (0 if no hold). */
     depositCredited: { type: Number, default: 0 },
 
+    /** True when this Payment represents a partial submission (< phase final amount). */
+    isPartial: { type: Boolean, default: false },
+
     /** Which installment this payment represents (1 = first/only, 2 = second half-pay). */
     installmentNumber: { type: Number, enum: [1, 2], default: 1 },
 

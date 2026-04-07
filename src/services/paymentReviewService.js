@@ -124,9 +124,21 @@ async function approvePayment(paymentId, actor) {
     if (payment.phaseNumber) {
       const phase = plan.phases.find((p) => p.phaseNumber === payment.phaseNumber);
       if (phase) {
-        phase.status    = 'paid';
-        phase.paidOn    = new Date();
-        phase.paymentId = payment._id;
+        // Increment running total over approved partial payments
+        phase.amountPaid = (phase.amountPaid || 0) + (payment.amount || 0);
+        if (!phase.paymentIds) phase.paymentIds = [];
+        phase.paymentIds.push(payment._id);
+        phase.paymentId = payment._id; // legacy: last approved payment
+
+        // Flip to 'paid' only when the running total covers the full phase
+        // finalAmount snapshot. Otherwise keep it 'partially_paid'.
+        const fullTotal = phase.finalAmount || 0;
+        if (fullTotal > 0 && phase.amountPaid >= fullTotal) {
+          phase.status = 'paid';
+          phase.paidOn = new Date();
+        } else {
+          phase.status = 'partially_paid';
+        }
       }
     }
 

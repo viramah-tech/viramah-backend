@@ -53,14 +53,18 @@ const phaseSchema = new mongoose.Schema(
     advanceCreditApplied: { type: Number, default: 0 },
     finalAmount:        { type: Number, default: 0 },
     breakdown:          { type: [breakdownLineSchema], default: [] },
+    // Partial-payment tracking (running totals over approved payments)
+    amountPaid:         { type: Number, default: 0 },
     dueDate: { type: Date, default: null },
     status: {
       type: String,
-      enum: ['pending', 'paid', 'overdue', 'on_hold', 'locked'],
+      enum: ['pending', 'partially_paid', 'paid', 'overdue', 'on_hold', 'locked'],
       default: 'pending',
     },
     paidOn:    { type: Date, default: null },
-    paymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment', default: null },
+    // Single paymentId is legacy; paymentIds supports partial payments
+    paymentId:  { type: mongoose.Schema.Types.ObjectId, ref: 'Payment', default: null },
+    paymentIds: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Payment' }], default: [] },
     lockedReason: { type: String, default: null },
   },
   { _id: false }
