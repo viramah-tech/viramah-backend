@@ -65,7 +65,7 @@ router.post('/upload-receipt', uploadReceipt.single('receipt'), (req, res) => {
 
 router.post('/submit',
   [
-    body('planId').notEmpty().withMessage('planId is required'),
+    body('planId').optional({ nullable: true }),
     body('transactionId').trim().notEmpty().withMessage('transactionId is required'),
     body('receiptUrl').trim().notEmpty().withMessage('receiptUrl is required'),
     body('paymentMethod')

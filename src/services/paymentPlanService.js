@@ -45,7 +45,14 @@ async function buildComponents(user, { addOns = {} } = {}) {
 
   // Monthly rent with GST baked in
   const gstRate = cfg.gstRate ?? 0.12;
-  const baseMonthly = roomType.monthlyRent || roomType.price || 0;
+  // RoomType stores pricing in nested (pricing.discounted / pricing.original)
+  // or flat (discountedPrice / basePrice) fields — pick the best available.
+  const baseMonthly =
+    roomType.pricing?.discounted ||
+    roomType.discountedPrice ||
+    roomType.pricing?.original ||
+    roomType.basePrice ||
+    0;
   const monthlyRent = Math.round(baseMonthly * (1 + gstRate));
 
   const lunchOpted     = !!addOns.mess;
