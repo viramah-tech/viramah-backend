@@ -17,6 +17,7 @@ const errorHandler = require('./src/middleware/errorHandler');
 const publicRoutes = require('./src/routes/public');
 const adminRoutes  = require('./src/routes/admin');
 const paymentV2Routes = require('./src/routes/paymentV2');
+const v1Routes = require('./src/routes/v1');
 const { initializeSocket } = require('./src/services/socketService');
 const { seedPricingConfig } = require('./src/models/PricingConfig');
 const { registerPhase2UnlockJob } = require('./src/jobs/phase2Unlock');
@@ -108,6 +109,7 @@ app.use('/api/public', publicRoutes);
 app.use('/api/admin', adminRoutes);
 // V2 payment flow (plan Section 4) — sits alongside legacy /api/public/payments during transition
 app.use('/api/payment', paymentV2Routes);
+app.use('/api/v1', v1Routes);
 // Note: admin upload routes are mounted inside adminRoutes index.js — no separate mount needed.
 // Root
 app.get('/', (req, res) => {
@@ -130,6 +132,10 @@ const start = async () => {
 
   // Ensure PricingConfig singleton exists in DB
   await seedPricingConfig();
+
+  // Initialize V3 Infrastructure (Redis/BullMQ)
+  const { initializeRedis } = require('./src/config/redis');
+  await initializeRedis();
 
   // Create HTTP server and attach Socket.IO
   const server = http.createServer(app);
