@@ -11,10 +11,22 @@ const getConfig = async (req, res, next) => {
 
 const selectTrack = async (req, res, next) => {
   try {
-    const plan = await planService.selectTrack(req.user._id, {
-      trackId: req.body.trackId,
-      addOns:  req.body.addOns || {},
-    });
+    const { trackId, addOns, bookingId } = req.body;
+    let plan;
+    if (bookingId) {
+      // V3 path: track selection after booking confirmation
+      const result = await planService.selectTrackPostBooking(req.user._id, bookingId, {
+        trackId,
+        addOns: addOns || {},
+      });
+      plan = result.plan;
+    } else {
+      // V2 legacy path
+      plan = await planService.selectTrack(req.user._id, {
+        trackId,
+        addOns: addOns || {},
+      });
+    }
     return success(res, { plan }, 'Track selected', 201);
   } catch (e) {
     if (e.statusCode) return error(res, e.message, e.statusCode);

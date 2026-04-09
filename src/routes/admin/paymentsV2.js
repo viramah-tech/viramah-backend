@@ -53,6 +53,8 @@ router.post('/manual',
 router.get('/:paymentId', ctrl.detail);
 
 router.post('/:paymentId/approve',
+  [body('type').optional().isIn(['booking', 'final']).withMessage('type must be booking or final')],
+  validate,
   auditLog('APPROVE_PAYMENT_V2', 'payment'),
   ctrl.approve
 );

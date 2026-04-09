@@ -31,12 +31,16 @@ router.get('/config', ctrl.getConfig);
 router.use(protect, authorize('user', 'resident'));
 
 router.post('/plan/select-track',
-  [body('trackId').isIn(['full', 'twopart']).withMessage('trackId must be full or twopart')],
+  [
+    body('trackId').isIn(['full', 'twopart']).withMessage('trackId must be full or twopart'),
+    body('bookingId').optional().isMongoId().withMessage('bookingId must be a valid Mongo ID'),
+  ],
   validate,
   ctrl.selectTrack
 );
 
 router.post('/plan/booking',
+  (req, res, next) => { res.setHeader('Deprecation', 'true'); res.setHeader('Sunset', 'Sat, 01 Aug 2026 00:00:00 GMT'); next(); },
   [body('advance').optional().isNumeric()],
   validate,
   ctrl.createBookingPlan

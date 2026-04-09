@@ -34,8 +34,14 @@ const detail = async (req, res, next) => {
 
 const approve = async (req, res, next) => {
   try {
-    const result = await svc.approvePayment(req.params.paymentId, actorFromReq(req));
-    return success(res, result, 'Payment approved');
+    const type = req.body.type; // 'booking' | 'final' | undefined
+    let result;
+    if (type === 'booking') {
+      result = await svc.approveBookingPayment(req.params.paymentId, actorFromReq(req));
+    } else {
+      result = await svc.approvePayment(req.params.paymentId, actorFromReq(req));
+    }
+    return success(res, result, type === 'booking' ? 'Booking payment approved' : 'Payment approved');
   } catch (e) {
     if (e.statusCode) return error(res, e.message, e.statusCode);
     next(e);
