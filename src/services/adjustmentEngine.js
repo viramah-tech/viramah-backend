@@ -279,10 +279,30 @@ async function computeBookingAmount(planId) {
   };
 }
 
+/**
+ * Compute the booking credit to apply against final payment.
+ * The ₹16,180 booking amount is credited as follows:
+ *   - ₹15,000 security deposit → NOT deducted from rent (refundable post-tenancy)
+ *   - ₹1,000 registration fee → deducted from Phase 1
+ *   - ₹180 registration GST → deducted from Phase 1
+ * Net credit against rent: ₹1,180 (registration + GST)
+ * Security deposit stays as refundable balance.
+ */
+function computeBookingCredit(booking) {
+  if (!booking || !booking.financials) return 0;
+  
+  const registrationFee = booking.financials.registrationFee || 100000;
+  const registrationGst = booking.financials.registrationGst || 18000;
+  
+  // Return paise
+  return registrationFee + registrationGst; // ₹1,180 default
+}
+
 module.exports = {
   computePhaseAmount,
   computeBookingAmount,
   computePhaseAmountFromPlan,
   computeBookingAmountFromPlan,
+  computeBookingCredit,
   _compute, // exported for unit tests
 };

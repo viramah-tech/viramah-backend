@@ -159,6 +159,28 @@ async function generateReceiptPdf({ receiptType, user, payment, roomTypeName }) 
 
       doc.moveDown(2);
 
+      // ── GST & Compliance Details ─────────────────────────────────────────
+      doc.fontSize(10).fillColor(BRAND_GOLD).text('TAX INVOICE DETAILS', 50);
+      doc.moveDown(0.3);
+      doc.rect(50, doc.y, pageWidth, 1).fill(BRAND_GOLD);
+      doc.moveDown(0.5);
+
+      const complianceLines = [
+        ['GSTIN', process.env.BUSINESS_GSTIN || '09XXXXXXXXXX1ZX'],
+        ['HSN / SAC Code', '996311 (Accommodation Services)'],
+        ['Place of Supply', 'PROPERTY_LOCATION (Uttar Pradesh)'],
+        ['Tax Component', 'CGST (9%) + SGST (9%)']
+      ];
+
+      complianceLines.forEach(([label, value]) => {
+        const yPos = doc.y;
+        doc.fontSize(9).fillColor('#666666').text(label, 50, yPos, { width: 120 });
+        doc.fontSize(9).fillColor('#1a1a1a').text(`:  ${value}`, 170, yPos);
+        doc.moveDown(0.2);
+      });
+
+      doc.moveDown(2);
+
       // ── Footer note ─────────────────────────────────────────────────────
       doc.rect(50, doc.y, pageWidth, 1).fill('#ddd');
       doc.moveDown(0.5);

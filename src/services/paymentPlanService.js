@@ -18,6 +18,7 @@ const User           = require('../models/User');
 const RoomType       = require('../models/RoomType');
 const RoomHold       = require('../models/RoomHold');
 const Payment        = require('../models/Payment');
+const Booking        = require('../models/Booking');
 const pricingService = require('./pricingService');
 const engine         = require('./adjustmentEngine');
 
@@ -309,6 +310,92 @@ async function upgradeTrack(userId, { trackId }) {
 }
 
 /**
+ * NEW (V3): Post-booking track selection.
+ * Only callable when Booking.status === 'BOOKING_CONFIRMED'.
+ * Creates PaymentPlan (backward compat) AND populates Booking.paymentPlan + Booking.installments.
+ */
+async function selectTrackPostBooking(userId, bookingId, { trackId, addOns = {} }) {
+  if (!['full', 'twopart'].includes(trackId)) {
+    throw err('trackId must be "full" or "twopart"', 400);
+  }
+
+  const booking = await Booking.findById(bookingId);
+  if (!booking) throw err('Booking not found', 404);
+  if (String(booking.userId) !== String(userId)) throw err('Forbidden', 403);
+  if (booking.status !== 'BOOKING_CONFIRMED') {
+    throw err(`Track selection requires BOOKING_CONFIRMED, current status: ${booking.status}`, 409);
+  }
+
+  const user = await User.findById(userId);
+  if (!user) throw err('User not found', 404);
+
+  // Apply booking credit here. 
+  // Registration and GST are credited to Phase 1.
+  const creditToApply = engine.computeBookingCredit(booking);
+
+  const components = await buildComponents(user, { addOns });
+  // Skip already collected security deposit completely from phases
+  const alreadyCollected = ['security'];
+  const phases = buildPhasesFor(trackId, components, { alreadyCollected });
+
+  const previewPlan = {
+    userId,
+    bookingId: booking._id,
+    roomId: user.roomTypeId,
+    trackId,
+    chosenTrackId: trackId,
+    components,
+    phases,
+    advanceCreditTotal: creditToApply,
+    advanceCreditConsumed: 0,
+    advanceCreditRemaining: creditToApply, // Use advance credit system for the 1180 registration fee
+  };
+
+  // Create the parallel plan
+  const plan = await PaymentPlan.create({
+    ...previewPlan,
+    createdBy: { userId, role: 'resident' },
+  });
+
+  // Calculate snapshot amounts
+  for (const ph of plan.phases) {
+    if (ph.status === 'locked' && !ph.dueDate) continue;
+    try {
+      const c = await engine.computePhaseAmountFromPlan(plan, ph.phaseNumber, userId);
+      ph.finalAmount = c.finalAmount;
+    } catch (_) {
+      ph.finalAmount = 0;
+    }
+  }
+  await plan.save();
+
+  // Populate Booking model installments
+  booking.paymentPlan = {
+    type: trackId === 'full' ? 'FULL_TENURE' : 'HALF_YEARLY',
+    selectedAt: new Date()
+  };
+
+  booking.installments = phases.map(p => ({
+    installmentNumber: p.phaseNumber,
+    period: { startMonth: 1, endMonth: p.monthsCovered }, 
+    totalAmount: p.finalAmount,
+    paidAmount: 0,
+    remainingAmount: p.finalAmount,
+    dueDate: p.dueDate,
+    status: p.status === 'locked' ? 'PENDING' : 'PENDING'
+  }));
+  
+  booking.status = 'FINAL_PAYMENT_PENDING';
+  await booking.save();
+
+  await User.findByIdAndUpdate(userId, { 
+    'paymentProfile.paymentStatus': 'FINAL_PAYMENT_PENDING' 
+  });
+
+  return { plan, booking };
+}
+
+/**
  * GET /api/payment/plan/me — current user's active plan with fresh breakdown per phase.
  */
 async function getMyPlan(userId) {
@@ -351,6 +438,7 @@ module.exports = {
   selectTrack,
   createBookingPlan,
   upgradeTrack,
+  selectTrackPostBooking,
   getMyPlan,
   getPhaseBreakdown,
   // Internal helpers exposed for atomic plan-on-first-payment creation

@@ -12,9 +12,12 @@ const Payment     = require('../models/Payment');
 const PaymentPlan = require('../models/PaymentPlan');
 const User        = require('../models/User');
 const RoomHold    = require('../models/RoomHold');
+const Booking     = require('../models/Booking');
 const engine      = require('./adjustmentEngine');
 const planService = require('./paymentPlanService');
+const { processOcr, checkDuplicateUtr } = require('./paymentVerificationService');
 const { emitToAdmins, emitToUser } = require('./socketService');
+const { v4: uuidv4 } = require('uuid');
 
 const PAYMENT_METHODS = ['UPI', 'NEFT', 'RTGS', 'IMPS', 'CASH', 'CHEQUE', 'OTHER'];
 
@@ -101,12 +104,22 @@ async function submitPayment(userId, body) {
       }
     }
 
+    // ── Enforce Booking Confirmed (V3 Core Flow Inversion) ─────────────────
+    if (plan.bookingId) {
+      const booking = await Booking.findById(plan.bookingId);
+      if (booking && booking.status !== 'BOOKING_CONFIRMED' && booking.status !== 'FINAL_PAYMENT_PENDING' && booking.status !== 'PARTIALLY_PAID') {
+         throw err(`Cannot submit phase payment unless booking is confirmed (Current status: ${booking.status})`, 409);
+      }
+    }
+
     computed = await engine.computePhaseAmount(plan._id, Number(phaseNumber), userId);
   }
 
-  // ── Dedup transactionId across payments ─────────────────────────────────────
-  const dup = await Payment.findOne({ transactionId: String(transactionId).trim() });
-  if (dup) throw err('A payment with this transaction ID already exists', 409);
+  // ── Dedup transactionId & generate UTR hash ──────────────────────────────
+  const dupCheck = await checkDuplicateUtr(transactionId, (clientAmount || computed?.finalAmount), new Date().toISOString());
+  if (dupCheck.isDuplicate) {
+    throw err('A payment with this transaction ID already exists', 409);
+  }
 
   // ── Partial-payment: compute how much the user is submitting now ───────────
   // Sum pending+approved payments already attached to this phase and make sure
@@ -164,12 +177,22 @@ async function submitPayment(userId, body) {
     advanceCreditApplied: computed.advanceCreditApplied || 0,
     transactionId:    String(transactionId).trim(),
     receiptUrl:       String(receiptUrl).trim(),
-    paymentMethod:    paymentMethod, // legacy text field, mirrored
+    paymentMethod:    paymentMethod,
     paymentMethodV2:  paymentMethod,
     status: 'pending',
     submittedAt: new Date(),
     isPartial,
+    duplicateCheck: dupCheck,
+    idempotencyKey: body.idempotencyKey || uuidv4(),
+    proofDocument: {
+      fileUrl: String(receiptUrl).trim(),
+      uploadedAt: new Date(),
+      verificationStatus: 'PENDING'
+    }
   });
+
+  // Async OCR Trigger
+  processOcr(payment._id, String(receiptUrl).trim()).catch(e => console.error('[OCR Error]', e));
 
   // ── Emit socket events (Section 7) ─────────────────────────────────────────
   const payload = {
