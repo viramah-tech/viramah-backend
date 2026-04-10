@@ -1,6 +1,34 @@
 const mongoose = require('mongoose');
 
 const auditLogSchema = new mongoose.Schema({
+  // V3 fields
+  entityType: { type: String, default: null },           // BOOKING, PAYMENT, USER, CONFIG
+  entityId: { type: String, default: null },
+  actionCategory: { type: String, default: null },       // PAYMENT, VERIFICATION, TIMER, CONFIG
+  actor: {
+    type: { type: String, default: null },               // USER, ADMIN, SYSTEM, CRON
+    id: { type: String, default: null },
+    name: { type: String, default: null },
+    email: { type: String, default: null },
+    role: { type: String, default: null },
+    ipAddress: { type: String, default: null },
+    userAgent: { type: String, default: null }
+  },
+  changes: {
+    field: { type: String, default: null },
+    from: { type: mongoose.Schema.Types.Mixed, default: null },
+    to: { type: mongoose.Schema.Types.Mixed, default: null }
+  },
+  snapshot: {
+    before: { type: Object, default: null },
+    after: { type: Object, default: null }
+  },
+  severity: {
+    type: String,
+    enum: ['INFO', 'WARNING', 'CRITICAL'],
+    default: 'INFO'
+  },
+  // Legacy fields
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   userName: { type: String, default: '' },
   userRole: { type: String, default: '' },

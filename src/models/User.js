@@ -42,6 +42,47 @@ const userSchema = new mongoose.Schema(
       enum: ['unpaid', 'pending', 'approved', 'rejected'],
       default: 'unpaid',
     },
+    // ── V2.0 Payment Profile ────────────────────────────────────────────────
+    paymentProfile: {
+      currentBookingId: { type: String, default: null },
+      paymentStatus: {
+        type: String,
+        enum: [
+          'NO_BOOKING',
+          'BOOKING_PENDING',
+          'UNDER_VERIFICATION',
+          'BOOKING_CONFIRMED',
+          'TRACK_SELECTED',
+          'FINAL_PAYMENT_PENDING',
+          'PARTIALLY_PAID',
+          'FULLY_PAID',
+          'SERVICES_PENDING',
+          'COMPLETED',
+          'OVERDUE'
+        ],
+        default: 'NO_BOOKING'
+      },
+      riskScore: { type: Number, default: 0 },
+
+      // V2.0: Global discount eligibility
+      discountEligibility: {
+        maxFullTenureDiscount:  { type: Number, default: 40 },  // % — usually 40
+        maxHalfYearlyDiscount:  { type: Number, default: 25 },  // % — usually 25
+        specialDiscounts: [{
+          type:             { type: String },   // FESTIVAL, REFERRAL, CORPORATE, ADMIN_OVERRIDE
+          discountPercent:  { type: Number },
+          validFrom:        { type: Date },
+          validUntil:       { type: Date },
+          appliedToBookingId: { type: mongoose.Schema.Types.ObjectId, ref: 'Booking', default: null },
+          setBy:            { type: String, default: null },
+        }],
+      },
+
+      // V2.0: Referral system
+      referralCode:         { type: String, default: null },
+      referralCreditsEarned: { type: Number, default: 0 },  // rupees
+      referralCreditsUsed:   { type: Number, default: 0 },  // rupees
+    },
     documentVerificationStatus: {
       type: String,
       enum: ['pending', 'approved', 'rejected'],

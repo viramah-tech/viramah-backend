@@ -1,73 +1,112 @@
 const mongoose = require('mongoose');
 
 /**
- * PricingConfig is a SINGLETON document storing all server-side pricing constants.
- * Update this document via the admin panel (future) or directly in the DB to change
- * pricing without redeploying code.
+ * PricingConfig.js — V2.0 Singleton document.
  *
- * IMPORTANT: This is the single source of truth for all fee amounts and rates.
- * No controller, service, or frontend should hardcode these values.
+ * Single source of truth for all server-side pricing constants.
+ * ALL monetary values in RUPEES (INR).
+ *
+ * V2.0 additions:
+ *  - roomPricing: per-room-type monthly base rates
+ *  - discounts: structured with default + max caps
+ *  - servicePricing: mess/transport rates
+ *  - gst: centralized GST configuration
  */
 const pricingConfigSchema = new mongoose.Schema(
   {
-    /** Flat one-time admin/registration charge added to every payment (not discounted) */
-    registrationFee: { type: Number, default: 1000, min: 0 },
-
-    /** Refundable security deposit added to installment 1 only (not discounted) */
-    securityDeposit: { type: Number, default: 15000, min: 0 },
-
-    /**
-     * GST rate applied ONLY to room rent (Indian standard: 12% on accommodation).
-     * Applied after the discount, using two-step rounding (per Indian GST practice):
-     *   1. discountedBase = Math.round(roomMonthly × (1 - discountRate))
-     *   2. gstAmount     = Math.round(discountedBase × gstRate)
-     *   3. monthlyTotal  = discountedBase + gstAmount
-     */
-    gstRate: { type: Number, default: 0.12, min: 0, max: 1 },
-
-    /** Monthly transport/commute add-on (no GST). Discount applied per spec. */
+    // ── Legacy fields (preserved for backward compat) ────────────────────
+    registrationFee:  { type: Number, default: 1000, min: 0 },
+    securityDeposit:  { type: Number, default: 15000, min: 0 },
+    gstRate:          { type: Number, default: 0.18, min: 0, max: 1 },  // Updated: 18% for V2.0
     transportMonthly: { type: Number, default: 2000, min: 0 },
-
-    /** Monthly mess/lunch add-on rate — used when NOT opting for lump sum (no GST) */
-    messMonthly: { type: Number, default: 2200, min: 0 },
-
-    /**
-     * Full-tenure mess lump sum (available ONLY for 'full' payment mode).
-     * Cheaper than paying monthly (₹2,200 × 11 = ₹24,200 vs ₹19,900 lump sum).
-     */
-    messLumpSum: { type: Number, default: 19900, min: 0 },
-
-    /** Discount rate for 'full' payment mode (applied to room + add-ons) */
-    discountFull: { type: Number, default: 0.40, min: 0, max: 1 },
-
-    /** Discount rate for 'half' payment mode */
-    discountHalf: { type: Number, default: 0.25, min: 0, max: 1 },
-
-    /** Referral bonus — deducted from referree's final payable; credited to referrer */
-    referralBonus: { type: Number, default: 1000, min: 0 },
-
-    /** Total tenure in months */
-    tenureMonths: { type: Number, default: 11, min: 1 },
-
-    /** Number of months in installment 1 (half-pay mode) */
+    messMonthly:      { type: Number, default: 2200, min: 0 },
+    messLumpSum:      { type: Number, default: 19900, min: 0 },
+    discountFull:     { type: Number, default: 0.40, min: 0, max: 1 },
+    discountHalf:     { type: Number, default: 0.25, min: 0, max: 1 },
+    referralBonus:    { type: Number, default: 1000, min: 0 },
+    tenureMonths:     { type: Number, default: 11, min: 1 },
     installment1Months: { type: Number, default: 6, min: 1 },
-
-    /**
-     * Deadline (in days from booking creation) for a Track 3 booking plan to
-     * upgrade to Full or Two-Part. After this window, upgradeTrack is rejected.
-     */
     bookingUpgradeDeadlineDays: { type: Number, default: 30, min: 1 },
-
-    /**
-     * Deadline (in days from plan creation / first submission) for completing
-     * Phase 1 payment. After this window, new submissions against Phase 1 are
-     * rejected and the phase becomes overdue.
-     */
-    phase1DeadlineDays: { type: Number, default: 15, min: 1 },
-
-    /** Current T&C and Privacy Policy versions (avoid hardcoding in controllers) */
+    phase1DeadlineDays:         { type: Number, default: 15, min: 1 },
     currentTermsVersion:   { type: String, default: 'v1.0' },
     currentPrivacyVersion: { type: String, default: 'v1.0' },
+
+    // ── V2.0: Booking Amount (Fixed) ─────────────────────────────────────
+    bookingAmount: {
+      securityDeposit:     { type: Number, default: 15000 },
+      registrationFee:     { type: Number, default: 1000 },
+      registrationGstRate: { type: Number, default: 0.18 },   // 18%
+      total:               { type: Number, default: 16180 },  // 15000 + 1000 + 180
+    },
+
+    // ── V2.0: Room Pricing (Monthly base rates per type) ─────────────────
+    roomPricing: {
+      AXIS_PLUS_STUDIO: { baseMonthly: { type: Number, default: 24538 } },
+      AXIS_STUDIO:      { baseMonthly: { type: Number, default: 21563 } },
+      COLLECTIVE_1BHK:  { baseMonthly: { type: Number, default: 18587 } },
+      NEXUS_1BHK:       { baseMonthly: { type: Number, default: 13527 } },
+    },
+
+    // ── V2.0: Discount Structure (with max caps) ─────────────────────────
+    discounts: {
+      fullTenure: {
+        defaultPercent: { type: Number, default: 40 },
+        maxPercent:     { type: Number, default: 50 },
+      },
+      halfYearly: {
+        defaultPercent: { type: Number, default: 25 },
+        maxPercent:     { type: Number, default: 35 },
+      },
+    },
+
+    // ── V2.0: Service Pricing ────────────────────────────────────────────
+    servicePricing: {
+      mess: {
+        monthly:          { type: Number, default: 2000 },
+        fullTenureLumpSum: { type: Number, default: 19900 },
+      },
+      transport: {
+        monthly: { type: Number, default: 2000 },
+      },
+    },
+
+    // ── V2.0: Timer Configuration ────────────────────────────────────────
+    timers: {
+      priceLockMinutes:      { type: Number, default: 15 },
+      bookingPaymentMinutes: { type: Number, default: 30 },
+      finalPaymentDays:      { type: Number, default: 7 },
+      installmentGraceDays:  { type: Number, default: 3 },
+      reminderSchedule:      { type: [Number], default: [3, 1, 0] },
+      maxExtendDays:         { type: Number, default: 14 },
+    },
+
+    // ── V2.0: GST Configuration (Centralized) ───────────────────────────
+    gst: {
+      rate:         { type: Number, default: 0.18 },  // 18% for commercial rental
+      applicableOn: { type: [String], default: ['ROOM_RENT', 'REGISTRATION_FEE', 'MESS', 'TRANSPORT'] },
+      exempt:       { type: [String], default: ['SECURITY_DEPOSIT'] },
+      invoiceFormat: {
+        mustInclude: { type: [String], default: ['GSTIN', 'HSN Code', 'Taxable Value', 'CGST/SGST or IGST'] },
+        hsnCode: { type: String, default: '996311' }, // Accommodation in hotels/inn
+        placeOfSupply: { type: String, default: 'PROPERTY_LOCATION' }
+      }
+    },
+
+    // ── V2.0: Risk Scoring ───────────────────────────────────────────────
+    riskScoring: {
+      weights: {
+        amountMismatch:  { type: Number, default: 20 },
+        duplicateUtr:    { type: Number, default: 50 },
+        imageQualityLow: { type: Number, default: 10 },
+        timeExpiry:      { type: Number, default: 15 },
+        newUser:         { type: Number, default: 5 },
+      },
+      thresholds: {
+        low:    { type: Number, default: 25 },
+        medium: { type: Number, default: 50 },
+        high:   { type: Number, default: 51 },
+      },
+    },
   },
   {
     timestamps: true,
@@ -77,10 +116,6 @@ const pricingConfigSchema = new mongoose.Schema(
 
 const PricingConfig = mongoose.model('PricingConfig', pricingConfigSchema);
 
-/**
- * Seeds a default PricingConfig document if none exists.
- * Called during server startup from server.js or the config/db connection.
- */
 const seedPricingConfig = async () => {
   try {
     const existing = await PricingConfig.findOne();

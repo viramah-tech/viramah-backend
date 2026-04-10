@@ -1,26 +1,28 @@
 'use strict';
 
 /**
- * Booking.js — Anchor collection for the new payment flow (V3).
+ * Booking.js — V2.0 Anchor collection for the payment flow.
  *
  * Replaces RoomHold for NEW users. Existing users with active RoomHolds
  * stay on the legacy flow until conversion or expiry.
  *
- * Lifecycle:
+ * Lifecycle (V2.0):
  *   DRAFT → PENDING_BOOKING_PAYMENT → UNDER_VERIFICATION
  *     → BOOKING_CONFIRMED (7-day timer starts)
- *     → FINAL_PAYMENT_PENDING → PARTIALLY_PAID → FULLY_PAID → CLOSED
+ *     → TRACK_SELECTED → FINAL_PAYMENT_PENDING
+ *     → PARTIALLY_PAID → FULLY_PAID
+ *     → SERVICES_PENDING → COMPLETED
  *
  * Rejected bookings can retry:
  *   UNDER_VERIFICATION → REJECTED → PENDING_BOOKING_PAYMENT (re-submit)
  *
  * Expiry / cancellation:
- *   PENDING_BOOKING_PAYMENT → CANCELLED (price lock or payment window expired)
+ *   PENDING_BOOKING_PAYMENT → CANCELLED (payment window expired)
  *   FINAL_PAYMENT_PENDING  → OVERDUE   (7-day deadline passed)
  *
  * Financial Convention:
- *   ALL monetary fields in `financials` are stored in PAISE (×100 of INR).
- *   Example: ₹15,000 = 1500000 paise.
+ *   ALL monetary fields are stored in RUPEES (INR).
+ *   Example: ₹15,000 = 15000.
  */
 
 const mongoose = require('mongoose');
@@ -28,10 +30,6 @@ const { prefixed } = require('../utils/ulid');
 
 /* ─── Booking ID Generator ────────────────────────────────────────────────── */
 
-/**
- * Generates a booking ID in the format BK-YYYY-XXXXXX.
- * Uses ULID suffix truncated to 6 chars for collision resistance.
- */
 const generateBookingId = () => {
   const year = new Date().getFullYear();
   const suffix = prefixed('').replace('-', '').slice(0, 6).toUpperCase();
@@ -44,9 +42,21 @@ const statusHistoryEntrySchema = new mongoose.Schema(
   {
     status:    { type: String, required: true },
     timestamp: { type: Date, default: Date.now },
-    changedBy: { type: String, enum: ['USER', 'ADMIN', 'SYSTEM'], default: 'SYSTEM' },
+    changedBy: { type: String, default: 'SYSTEM' },
     reason:    { type: String, default: '' },
     metadata:  { type: mongoose.Schema.Types.Mixed, default: {} },
+  },
+  { _id: false }
+);
+
+/** Tracks a single partial payment contribution to an installment */
+const partialPaymentSchema = new mongoose.Schema(
+  {
+    paymentId:  { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' },
+    amount:     { type: Number, required: true },  // rupees
+    status:     { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING' },
+    paidAt:     { type: Date, default: Date.now },
+    approvedAt: { type: Date, default: null },
   },
   { _id: false }
 );
@@ -54,21 +64,74 @@ const statusHistoryEntrySchema = new mongoose.Schema(
 const installmentSchema = new mongoose.Schema(
   {
     installmentNumber: { type: Number, required: true, enum: [1, 2] },
+    type: {
+      type: String,
+      enum: ['BOOKING', 'INSTALLMENT_1', 'INSTALLMENT_2', 'FULL_PAYMENT'],
+      default: 'INSTALLMENT_1',
+    },
     period: {
       startMonth: { type: Number, min: 1, max: 11 },
       endMonth:   { type: Number, min: 1, max: 11 },
     },
-    totalAmount:     { type: Number, required: true },      // paise
-    paidAmount:      { type: Number, default: 0 },          // paise
-    remainingAmount: { type: Number, default: 0 },          // paise
+    totalAmount:     { type: Number, required: true },       // rupees
+    amountPaid:      { type: Number, default: 0 },           // rupees — sum of approved partial payments
+    amountRemaining: { type: Number, default: 0 },           // rupees — totalAmount - amountPaid
     dueDate:         { type: Date, default: null },
     gracePeriodEnd:  { type: Date, default: null },
+    completedAt:     { type: Date, default: null },
     status: {
       type: String,
       enum: ['PENDING', 'PARTIALLY_PAID', 'COMPLETED', 'OVERDUE', 'WAIVED'],
       default: 'PENDING',
     },
+    // V2.0: Partial payment tracking — multiple payments per installment
+    partialPayments: [partialPaymentSchema],
+    // Legacy: direct payment refs (kept for backward compat)
     payments: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Payment' }],
+  },
+  { _id: false }
+);
+
+/** Admin timer override audit entry */
+const timerOverrideSchema = new mongoose.Schema(
+  {
+    action:        { type: String, enum: ['EXTEND', 'REDUCE', 'PAUSE', 'RESUME', 'RESET'], required: true },
+    timerType:     { type: String, required: true },
+    previousValue: { type: Date, default: null },
+    newValue:      { type: Date, default: null },
+    adminId:       { type: String, required: true },
+    reason:        { type: String, default: '' },
+    timestamp:     { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
+/** Service payment item (mess or transport) */
+const servicePaymentItemSchema = new mongoose.Schema(
+  {
+    paymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' },
+    amount:    { type: Number },  // rupees
+    status:    { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING' },
+  },
+  { _id: false }
+);
+
+/* ─── Bill Display Sub-schemas (for dual bill UI) ─────────────────────────── */
+
+const billBreakdownLineSchema = new mongoose.Schema(
+  {
+    label:  { type: String, required: true },
+    amount: { type: Number, required: true },  // rupees (negative for deductions)
+    type:   { type: String, enum: ['SECURITY', 'REGISTRATION_BASE', 'TAX', 'RENT', 'DISCOUNT', 'SERVICE', 'DEDUCTION', 'CREDIT'] },
+  },
+  { _id: false }
+);
+
+const referralCreditSchema = new mongoose.Schema(
+  {
+    amount:     { type: Number, default: 0 },    // rupees
+    referralId: { type: String, default: null },
+    label:      { type: String, default: '' },
   },
   { _id: false }
 );
@@ -102,27 +165,108 @@ const bookingSchema = new mongoose.Schema(
       },
       tenure: { type: Number, default: 11, min: 11, max: 11 },
       mess: {
-        selected:  { type: Boolean, default: false },
-        type:      { type: String, enum: ['LUNCH', 'DINNER', 'BOTH', null], default: null },
-        amount:    { type: Number, default: 0 },    // paise — total for mess tenure
+        selected: { type: Boolean, default: false },
+        type:     { type: String, enum: ['LUNCH', 'DINNER', 'BOTH', null], default: null },
       },
       transport: {
         selected: { type: Boolean, default: false },
-        amount:   { type: Number, default: 0 },     // paise — total for transport tenure
+        routes:   [String],
       },
     },
 
-    // ── Financial Breakdown (ALL IN PAISE) ───────────────────────────────
+    // ── V2.0 DUAL BILL DISPLAY DATA ─────────────────────────────────────
+    // For UI rendering only. Calculated at booking creation, updated on track selection.
+    displayBills: {
+      // Booking amount breakdown (fixed ₹16,180)
+      bookingBill: {
+        securityDeposit: {
+          amount:    { type: Number, default: 15000 },
+          gstRate:   { type: Number, default: 0 },
+          gstAmount: { type: Number, default: 0 },
+          total:     { type: Number, default: 15000 },
+        },
+        registrationFee: {
+          baseAmount: { type: Number, default: 1000 },
+          gstRate:    { type: Number, default: 0.18 },
+          gstAmount:  { type: Number, default: 180 },
+          total:      { type: Number, default: 1180 },
+        },
+        totalPayable: { type: Number, default: 16180 },
+        breakdown: [billBreakdownLineSchema],
+      },
+      // Projected final bill — computed for BOTH track options
+      projectedFinalBill: {
+        // Full Tenure option
+        fullTenure: {
+          track:           { type: String, default: 'FULL_TENURE' },
+          discountPercent: { type: Number, default: 40 },
+          roomRent: {
+            baseMonthly:        { type: Number, default: null },
+            tenure:             { type: Number, default: 11 },
+            subtotal:           { type: Number, default: null },
+            discountPercent:    { type: Number, default: 40 },
+            discountAmount:     { type: Number, default: null },
+            discountedSubtotal: { type: Number, default: null },
+            gstRate:            { type: Number, default: 0.18 },
+            gstAmount:          { type: Number, default: null },
+            total:              { type: Number, default: null },
+          },
+          mess:      { type: mongoose.Schema.Types.Mixed, default: null },
+          transport: { type: mongoose.Schema.Types.Mixed, default: null },
+          deductions: {
+            securityDeposit: {
+              amount: { type: Number, default: 15000 },
+              label:  { type: String, default: 'Security Deposit Credit' },
+            },
+            referralCredits: [referralCreditSchema],
+            otherCredits:    [{ amount: Number, reason: String }],
+          },
+          grandTotal:          { type: Number, default: null },
+          totalAfterDeductions: { type: Number, default: null },
+        },
+        // Half Yearly option
+        halfYearly: {
+          track:           { type: String, default: 'HALF_YEARLY' },
+          discountPercent: { type: Number, default: 25 },
+          firstInstallment: {
+            months:     { type: Number, default: 6 },
+            totalAmount: { type: Number, default: null },
+            breakdown:   { type: mongoose.Schema.Types.Mixed, default: null },
+          },
+          secondInstallment: {
+            months:     { type: Number, default: 5 },
+            dueDate:    { type: Date, default: null },
+            totalAmount: { type: Number, default: null },
+            breakdown:   { type: mongoose.Schema.Types.Mixed, default: null },
+          },
+          mess:      { type: mongoose.Schema.Types.Mixed, default: null },
+          transport: { type: mongoose.Schema.Types.Mixed, default: null },
+          deductions: {
+            securityDeposit: {
+              amount: { type: Number, default: 15000 },
+              label:  { type: String, default: 'Security Deposit Credit' },
+            },
+            referralCredits: [referralCreditSchema],
+            otherCredits:    [{ amount: Number, reason: String }],
+          },
+          grandTotal:          { type: Number, default: null },
+          totalAfterDeductions: { type: Number, default: null },
+        },
+        effectiveDate: { type: Date, default: null },
+      },
+    },
+
+    // ── Financial Breakdown (ALL IN RUPEES) ──────────────────────────────
     financials: {
       // Booking amount components
-      securityDeposit:    { type: Number, default: 1500000 },   // ₹15,000
-      registrationFee:    { type: Number, default: 100000 },    // ₹1,000
-      registrationGst:    { type: Number, default: 18000 },     // ₹180 (18% of reg fee)
-      totalBookingAmount: { type: Number, default: 1618000 },   // ₹16,180
+      securityDeposit:    { type: Number, default: 15000 },    // ₹15,000
+      registrationFee:    { type: Number, default: 1000 },     // ₹1,000
+      registrationGst:    { type: Number, default: 180 },      // ₹180 (18% of reg fee)
+      totalBookingAmount: { type: Number, default: 16180 },    // ₹16,180
 
       // Rent calculations (populated after track selection)
-      baseRentPerMonth:   { type: Number, default: null },      // e.g. 2453800 = ₹24,538
-      baseRentTotal:      { type: Number, default: null },      // baseRentPerMonth × 11
+      baseRentPerMonth:   { type: Number, default: null },
+      baseRentTotal:      { type: Number, default: null },     // baseRentPerMonth × 11
 
       // Discount info (set when user selects track)
       discountType: {
@@ -130,45 +274,72 @@ const bookingSchema = new mongoose.Schema(
         enum: ['NONE', 'HALF_YEARLY', 'FULL_TENURE', null],
         default: null,
       },
-      discountPercentage: { type: Number, default: null },      // 25 or 40
-      discountAmount:     { type: Number, default: null },      // calculated
-      discountedRent:     { type: Number, default: null },      // after discount, before tax
+      discountPercentage: { type: Number, default: null },     // 25 or 40
+      discountAmount:     { type: Number, default: null },
+      discountedRent:     { type: Number, default: null },
 
       // Tax
-      taxRate:    { type: Number, default: 0.12 },               // 12% GST on rent
-      taxAmount:  { type: Number, default: null },               // 12% of discountedRent
+      taxRate:    { type: Number, default: 0.18 },              // 18% GST
+      taxAmount:  { type: Number, default: null },
 
       // Final rent total
-      finalRentTotal: { type: Number, default: null },           // discountedRent + taxAmount
+      finalRentTotal: { type: Number, default: null },
 
       // Additional services
       messTotal:      { type: Number, default: null },
       transportTotal: { type: Number, default: null },
 
       // Grand totals
-      grandTotal:   { type: Number, default: null },             // everything combined
-      totalPaid:    { type: Number, default: 0 },                // sum of approved payments
-      totalPending: { type: Number, default: null },             // grandTotal - totalPaid
+      grandTotal:   { type: Number, default: null },
+      totalPaid:    { type: Number, default: 0 },
+      totalPending: { type: Number, default: null },
 
-      // Precision marker
-      currency:  { type: String, default: 'INR' },
-      precision: { type: String, default: 'paise' },
+      currency: { type: String, default: 'INR' },
     },
 
-    // ── Payment Plan (set AFTER booking approval, when user selects track) ──
+    // ── Payment Plan (V2.0 — enhanced) ──────────────────────────────────
     paymentPlan: {
-      type: {
+      selectedTrack: {
         type: String,
         enum: ['FULL_TENURE', 'HALF_YEARLY', null],
         default: null,
       },
-      selectedAt:   { type: Date, default: null },
-      lockedUntil:  { type: Date, default: null },      // 24h change window
-      canChangeUntil: { type: Date, default: null },    // after this, locked in
+      selectedAt:    { type: Date, default: null },
+      lockedUntil:   { type: Date, default: null },
+      canChangeUntil: { type: Date, default: null },
+      baseAmounts: {
+        roomRentTotal:  { type: Number, default: null },
+        messTotal:      { type: Number, default: null },
+        transportTotal: { type: Number, default: null },
+      },
     },
 
-    // ── Installment Tracking (only for HALF_YEARLY) ─────────────────────
+    // ── Installment Tracking ────────────────────────────────────────────
     installments: [installmentSchema],
+
+    // ── V2.0: Service Payments (Mess/Transport — independent from rent) ──
+    servicePayments: {
+      mess: {
+        totalAmount: { type: Number, default: null },
+        amountPaid:  { type: Number, default: 0 },
+        payments:    [servicePaymentItemSchema],
+        status: {
+          type: String,
+          enum: ['NOT_APPLICABLE', 'PENDING', 'PARTIALLY_PAID', 'COMPLETED'],
+          default: 'NOT_APPLICABLE',
+        },
+      },
+      transport: {
+        totalAmount: { type: Number, default: null },
+        amountPaid:  { type: Number, default: 0 },
+        payments:    [servicePaymentItemSchema],
+        status: {
+          type: String,
+          enum: ['NOT_APPLICABLE', 'PENDING', 'PARTIALLY_PAID', 'COMPLETED'],
+          default: 'NOT_APPLICABLE',
+        },
+      },
+    },
 
     // ── Status Management ────────────────────────────────────────────────
     status: {
@@ -178,9 +349,12 @@ const bookingSchema = new mongoose.Schema(
         'PENDING_BOOKING_PAYMENT',
         'UNDER_VERIFICATION',
         'BOOKING_CONFIRMED',
+        'TRACK_SELECTED',            // V2.0: After user selects full/half
         'FINAL_PAYMENT_PENDING',
         'PARTIALLY_PAID',
         'FULLY_PAID',
+        'SERVICES_PENDING',          // V2.0: Room paid, mess/transport pending
+        'COMPLETED',                 // V2.0: Everything paid
         'OVERDUE',
         'CANCELLED',
         'REFUND_PROCESSING',
@@ -190,20 +364,49 @@ const bookingSchema = new mongoose.Schema(
     },
     statusHistory: [statusHistoryEntrySchema],
 
-    // ── Timer Management ─────────────────────────────────────────────────
+    // ── Timer Management (V2.0 — enhanced with admin overrides) ─────────
     timers: {
-      priceLockExpiry:      { type: Date, default: null },   // 15 min from creation
-      bookingPaymentExpiry: { type: Date, default: null },   // 30 min for payment submission
-      finalPaymentDeadline: { type: Date, default: null },   // 7 days after booking approval
-      lastReminderSent:     { type: Date, default: null },
-      nextReminderScheduled:{ type: Date, default: null },
+      priceLockExpiry:       { type: Date, default: null },
+      bookingPaymentExpiry:  { type: Date, default: null },   // 30 min for payment
+      finalPaymentDeadline:  { type: Date, default: null },   // 7 days after approval
+      lastReminderSent:      { type: Date, default: null },
+      nextReminderScheduled: { type: Date, default: null },
+      installmentDeadlines: [{
+        installmentNumber: Number,
+        deadline:          Date,
+      }],
+      // V2.0: Pause state
+      finalPaymentDeadlinePaused: {
+        pausedAt:    { type: Date, default: null },
+        remainingMs: { type: Number, default: null },
+      },
+      // V2.0: Full audit trail for all timer changes
+      adminOverrides: [timerOverrideSchema],
+    },
+
+    // ── V2.0: Discount Overrides (Per-user, per-booking) ────────────────
+    discountOverrides: {
+      fullTenurePercent:      { type: Number, default: null },
+      halfYearlyPercent:      { type: Number, default: null },
+      messDiscountPercent:    { type: Number, default: null },
+      transportDiscountPercent: { type: Number, default: null },
+      validUntil:  { type: Date, default: null },
+      setBy:       { type: String, default: null },
+      setAt:       { type: Date, default: null },
+    },
+
+    // ── V2.0: Referral ──────────────────────────────────────────────────
+    referral: {
+      referrerCode:       { type: String, default: null },
+      referrerUserId:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      creditApplied:      { type: Number, default: 0 },       // ₹1000 max
+      friendCreditApplied: { type: Boolean, default: false },
     },
 
     // ── Optimistic Locking ───────────────────────────────────────────────
     version: { type: Number, default: 0 },
 
     // ── Migration Metadata ───────────────────────────────────────────────
-    // Only set for records migrated from RoomHolds
     _migratedFrom: {
       collection: { type: String, default: null },
       originalId: { type: mongoose.Schema.Types.ObjectId, default: null },
@@ -222,21 +425,18 @@ const bookingSchema = new mongoose.Schema(
 
 /* ─── Hooks ───────────────────────────────────────────────────────────────── */
 
-// Auto-generate bookingId before saving
 bookingSchema.pre('save', function () {
   if (!this.bookingId) {
     this.bookingId = generateBookingId();
   }
 });
 
-// Increment version on every save (optimistic locking support)
 bookingSchema.pre('save', function () {
   if (!this.isNew) {
     this.version += 1;
   }
 });
 
-// Push initial status to statusHistory on creation
 bookingSchema.pre('save', function () {
   if (this.isNew && this.statusHistory.length === 0) {
     this.statusHistory.push({
@@ -249,10 +449,8 @@ bookingSchema.pre('save', function () {
 
 /* ─── Indexes ─────────────────────────────────────────────────────────────── */
 
-// Unique booking ID
 bookingSchema.index({ bookingId: 1 }, { unique: true });
 
-// Only one active/pending booking per user at a time
 bookingSchema.index(
   { userId: 1, status: 1 },
   {
@@ -264,8 +462,10 @@ bookingSchema.index(
           'PENDING_BOOKING_PAYMENT',
           'UNDER_VERIFICATION',
           'BOOKING_CONFIRMED',
+          'TRACK_SELECTED',
           'FINAL_PAYMENT_PENDING',
           'PARTIALLY_PAID',
+          'SERVICES_PENDING',
         ],
       },
     },
@@ -273,22 +473,14 @@ bookingSchema.index(
   }
 );
 
-// Timer-based queries
 bookingSchema.index({ 'timers.finalPaymentDeadline': 1 }, { sparse: true });
 bookingSchema.index({ 'timers.priceLockExpiry': 1 },      { sparse: true });
-
-// Installment due date queries
-bookingSchema.index({ 'installments.dueDate': 1 }, { sparse: true });
-
-// Admin listing (status + date sorted)
+bookingSchema.index({ 'timers.bookingPaymentExpiry': 1 },  { sparse: true });
+bookingSchema.index({ 'installments.dueDate': 1 },         { sparse: true });
 bookingSchema.index({ status: 1, createdAt: -1 });
 
 /* ─── Statics ─────────────────────────────────────────────────────────────── */
 
-/**
- * Find the active booking for a given user.
- * Returns null if the user has no active booking.
- */
 bookingSchema.statics.findActiveForUser = function (userId) {
   return this.findOne({
     userId,
@@ -298,8 +490,10 @@ bookingSchema.statics.findActiveForUser = function (userId) {
         'PENDING_BOOKING_PAYMENT',
         'UNDER_VERIFICATION',
         'BOOKING_CONFIRMED',
+        'TRACK_SELECTED',
         'FINAL_PAYMENT_PENDING',
         'PARTIALLY_PAID',
+        'SERVICES_PENDING',
       ],
     },
   });
