@@ -11,7 +11,7 @@
 const cron = require('node-cron');
 const Booking = require('../models/Booking');
 const AuditLog = require('../models/AuditLog');
-const { sendEmail } = require('../services/emailService');
+const { sendEmail } = require('../services/email-service');
 
 function formatCurrency(amount) {
   return `₹${(amount || 0).toLocaleString('en-IN')}`;

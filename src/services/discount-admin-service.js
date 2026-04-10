@@ -16,7 +16,7 @@
 
 const Booking = require('../models/Booking');
 const User = require('../models/User');
-const { getPricingConfig } = require('./pricingService');
+const { getPricingConfig } = require('./pricing-service');
 
 const err = (message, statusCode = 400) => {
   const e = new Error(message);
@@ -136,7 +136,7 @@ async function setBookingDiscount(bookingId, discountData, adminId) {
 
   // Recalculate projected bill with new discounts
   if (booking.displayBills?.projectedFinalBill) {
-    const { calculateProjectedFinalBill } = require('./bookingService');
+    const { calculateProjectedFinalBill } = require('./booking-service');
     const updatedBill = await calculateProjectedFinalBill(
       booking.selections.roomType,
       booking.selections.tenure || 11,

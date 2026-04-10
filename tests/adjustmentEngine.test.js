@@ -11,7 +11,7 @@
  */
 
 const assert = require('assert');
-const { _compute } = require('../src/services/adjustmentEngine');
+const { _compute } = require('../src/services/adjustment-engine');
 
 let passed = 0;
 let failed = 0;

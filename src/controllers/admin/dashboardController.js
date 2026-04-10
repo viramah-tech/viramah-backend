@@ -1,4 +1,4 @@
-const dashboardService = require('../../services/dashboardService');
+const dashboardService = require('../../services/dashboard-service');
 const { success } = require('../../utils/apiResponse');
 
 const getOverview = async (req, res, next) => {

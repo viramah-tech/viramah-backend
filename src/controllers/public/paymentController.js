@@ -1,11 +1,11 @@
 'use strict';
 
-const paymentService  = require('../../services/paymentService');
-const pricingService  = require('../../services/pricingService');
-const depositService  = require('../../services/depositService');
+const paymentService  = require('../../services/payment-service');
+const pricingService  = require('../../services/pricing-service');
+const depositService  = require('../../services/deposit-service');
 const User            = require('../../models/User');
 const { success, error } = require('../../utils/apiResponse');
-const { emitToAdmins, emitToUser } = require('../../services/socketService');
+const { emitToAdmins, emitToUser } = require('../../services/socket-service');
 
 // ── AUDIT FIX D-1: Public Pricing Constants ──────────────────────────────────
 

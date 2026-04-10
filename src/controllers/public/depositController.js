@@ -1,7 +1,7 @@
 'use strict';
 
-const depositService = require('../../services/depositService');
-const { getPricingConfig } = require('../../services/pricingService');
+const depositService = require('../../services/deposit-service');
+const { getPricingConfig } = require('../../services/pricing-service');
 const { success, error } = require('../../utils/apiResponse');
 
 // ── POST /api/public/deposits/initiate ────────────────────────────────────────

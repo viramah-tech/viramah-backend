@@ -26,9 +26,9 @@ const Transaction = require('../models/Transaction');
 const PaymentPlan = require('../models/PaymentPlan');
 const User        = require('../models/User');
 const AuditLog    = require('../models/AuditLog');
-const engine      = require('./adjustmentEngine');
-const { emitToAdmins, emitToUser } = require('./socketService');
-const { startFinalPaymentTimer } = require('./timerService');
+const engine      = require('./adjustment-engine');
+const { emitToAdmins, emitToUser } = require('./socket-service');
+const { startFinalPaymentTimer } = require('./timer-service');
 const Booking     = require('../models/Booking');
 
 const err = (m, s = 400) => Object.assign(new Error(m), { statusCode: s });
@@ -52,7 +52,7 @@ async function listPayments({ status, paymentType, userId, planId, riskLevel, pa
   ]);
 
   // Enrich each payment with a computed riskScore + riskLevel
-  const { getRiskLevel } = require('./paymentVerificationService');
+  const { getRiskLevel } = require('./payment-verification-service');
   const enriched = payments.map(p => {
     const doc = p.toObject();
     const score = _computeInlineRiskScore(doc);
@@ -334,7 +334,7 @@ async function rejectPayment(paymentId, { reason, actor }) {
     const User = require('../models/User');
     const user = await User.findById(payment.userId).select('name email userId').lean();
     if (user?.email) {
-      const { sendEmail } = require('./emailService');
+      const { sendEmail } = require('./email-service');
       const firstName = (user.name || 'there').split(' ')[0];
       await sendEmail({
         to: user.email,

@@ -11,9 +11,9 @@ const Payment = require('../src/models/Payment');
 const RoomType = require('../src/models/RoomType');
 
 // Services
-const { initiateBooking, calculateProjectedFinalBill } = require('../src/services/bookingService');
-const { extendTimer, reduceTimer } = require('../src/services/timerAdminService');
-const { getPricingConfig } = require('../src/services/pricingService');
+const { initiateBooking, calculateProjectedFinalBill } = require('../src/services/booking-service');
+const { extendTimer, reduceTimer } = require('../src/services/timer-admin-service');
+const { getPricingConfig } = require('../src/services/pricing-service');
 
 const TEST_DB_URI = process.env.MONGODB_TEST_URI || 'mongodb://127.0.0.1:27017/viramah_test';
 

@@ -9,7 +9,7 @@
 
 const Booking = require('../models/Booking');
 const AuditLog = require('../models/AuditLog');
-const { getPricingConfig } = require('./pricingService');
+const { getPricingConfig } = require('./pricing-service');
 
 const err = (message, statusCode = 400) => {
   const e = new Error(message);

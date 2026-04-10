@@ -1,6 +1,6 @@
 'use strict';
 
-const svc = require('../../services/accountantService');
+const svc = require('../../services/accountant-service');
 const { success, error } = require('../../utils/apiResponse');
 
 const wrap = (fn) => async (req, res, next) => {

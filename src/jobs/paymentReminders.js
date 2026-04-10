@@ -16,8 +16,8 @@ const cron        = require('node-cron');
 const PaymentPlan = require('../models/PaymentPlan');
 const RoomHold    = require('../models/RoomHold');
 const User        = require('../models/User');
-const { sendEmail } = require('../services/emailService');
-const { emitToUser } = require('../services/socketService');
+const { sendEmail } = require('../services/email-service');
+const { emitToUser } = require('../services/socket-service');
 
 // ── Reminder thresholds (days before due) ────────────────────────────────────
 const UPCOMING_THRESHOLDS = [7, 3, 1];

@@ -13,7 +13,7 @@ const { protect } = require('../middleware/auth');
 const { authorize } = require('../middleware/roleAuth');
 const ctrl       = require('../controllers/public/paymentPlanController');
 const submitCtrl = require('../controllers/public/paymentSubmitController');
-const { createS3Storage, getFileUrl, fileFilter } = require('../services/s3Service');
+const { createS3Storage, getFileUrl, fileFilter } = require('../services/s3service');
 const { success, error } = require('../utils/apiResponse');
 
 const router = express.Router();

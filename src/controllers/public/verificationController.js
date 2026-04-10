@@ -7,7 +7,7 @@ const {
   verifyPhoneOtp,
   maskEmail,
   maskPhone,
-} = require('../../services/otpService');
+} = require('../../services/otp-service');
 
 // ── POST /api/public/verification/email/send ─────────────────────────────────
 const sendEmailCode = async (req, res, next) => {

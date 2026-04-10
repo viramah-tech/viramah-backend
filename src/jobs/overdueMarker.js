@@ -11,7 +11,7 @@
 const cron        = require('node-cron');
 const PaymentPlan = require('../models/PaymentPlan');
 const AuditLog    = require('../models/AuditLog');
-const { emitToAdmins, emitToUser } = require('../services/socketService');
+const { emitToAdmins, emitToUser } = require('../services/socket-service');
 
 async function runOverdueMarker() {
   const today = new Date();

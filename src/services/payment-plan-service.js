@@ -19,8 +19,8 @@ const RoomType       = require('../models/RoomType');
 const RoomHold       = require('../models/RoomHold');
 const Payment        = require('../models/Payment');
 const Booking        = require('../models/Booking');
-const pricingService = require('./pricingService');
-const engine         = require('./adjustmentEngine');
+const pricingService = require('./pricing-service');
+const engine         = require('./adjustment-engine');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

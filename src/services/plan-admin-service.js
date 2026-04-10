@@ -8,7 +8,7 @@
 const PaymentPlan = require('../models/PaymentPlan');
 const Adjustment  = require('../models/Adjustment');
 const AuditLog    = require('../models/AuditLog');
-const { emitToAdmins, emitToUser } = require('./socketService');
+const { emitToAdmins, emitToUser } = require('./socket-service');
 
 const err = (m, s = 400) => Object.assign(new Error(m), { statusCode: s });
 
@@ -255,7 +255,7 @@ async function rejectAdjustment(adjustmentId, reason, actor) {
 }
 
 async function previewAdjustment({ planId, phaseNumber, userId, type, valueType, value }) {
-  const engine = require('./adjustmentEngine');
+  const engine = require('./adjustment-engine');
   const before = await engine.computePhaseAmount(planId, Number(phaseNumber), userId);
   // Synthesize a hypothetical adjustment list including the proposed one
   const PaymentPlan = require('../models/PaymentPlan');

@@ -1,6 +1,6 @@
 'use strict';
 
-const svc = require('../../services/discountService');
+const svc = require('../../services/discount-service');
 const { success, error } = require('../../utils/apiResponse');
 
 const actorFromReq = (req) => ({

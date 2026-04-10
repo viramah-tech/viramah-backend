@@ -13,10 +13,10 @@ const PaymentPlan = require('../models/PaymentPlan');
 const User        = require('../models/User');
 const RoomHold    = require('../models/RoomHold');
 const Booking     = require('../models/Booking');
-const engine      = require('./adjustmentEngine');
-const planService = require('./paymentPlanService');
-const { processOcr, checkDuplicateUtr } = require('./paymentVerificationService');
-const { emitToAdmins, emitToUser } = require('./socketService');
+const engine      = require('./adjustment-engine');
+const planService = require('./payment-plan-service');
+const { processOcr, checkDuplicateUtr } = require('./payment-verification-service');
+const { emitToAdmins, emitToUser } = require('./socket-service');
 const { v4: uuidv4 } = require('uuid');
 
 const PAYMENT_METHODS = ['UPI', 'NEFT', 'RTGS', 'IMPS', 'CASH', 'CHEQUE', 'OTHER'];
@@ -94,7 +94,7 @@ async function submitPayment(userId, body) {
 
     // ── Deadline enforcement for Phase 1 ──────────────────────────────────────
     if (Number(phaseNumber) === 1) {
-      const cfg = await (require('./pricingService').getPricingConfig());
+      const cfg = await (require('./pricing-service').getPricingConfig());
       const deadlineDays = cfg.phase1DeadlineDays || 15;
       const anchor = phase.dueDate ? new Date(phase.dueDate) : new Date(plan.createdAt);
       const deadline = new Date(anchor);

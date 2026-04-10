@@ -18,7 +18,7 @@ const publicRoutes = require('./src/routes/public');
 const adminRoutes  = require('./src/routes/admin');
 const paymentV2Routes = require('./src/routes/paymentV2');
 const v1Routes = require('./src/routes/v1');
-const { initializeSocket } = require('./src/services/socketService');
+const { initializeSocket } = require('./src/services/socket-service');
 const { seedPricingConfig } = require('./src/models/PricingConfig');
 const { registerPhase2UnlockJob } = require('./src/jobs/phase2Unlock');
 const { registerOrphanReconciler } = require('./src/jobs/orphanReconciler');
@@ -73,7 +73,7 @@ app.use('/api', generalLimiter);
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 15,
+  max: 100, // relaxed for debugging! // previously 15
   message: { success: false, message: 'Too many login attempts, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,

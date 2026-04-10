@@ -6,7 +6,7 @@
 //   - paymentSubmitService (resident submit)
 
 const Payment        = require('../models/Payment');
-const pricingService = require('./pricingService');
+const pricingService = require('./pricing-service');
 
 // ── Get Payments (admin listing) ───────────────────────────────────────────────
 

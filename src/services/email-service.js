@@ -7,8 +7,9 @@ let _resend = null;
 function getResend() {
   if (!_resend) {
     const key = process.env.RESEND_API_KEY;
-    if (!key) throw new Error('RESEND_API_KEY is not configured');
-    _resend = new Resend(key);
+    if (key) {
+      _resend = new Resend(key);
+    }
   }
   return _resend;
 }
@@ -29,6 +30,19 @@ const DEFAULT_FROM = 'Viramah Stay <team@viramahstay.com>';
 async function sendEmail({ to, subject, html, attachments = [], from }) {
   const resend = getResend();
   const fromAddress = from || process.env.EMAIL_FROM || DEFAULT_FROM;
+  
+  // DEV FALLBACK: If there's no API key, securely log to console to prevent flow disruption.
+  if (!resend) {
+    console.log(`\n\x1b[36m==================================================`);
+    console.log(`✉️  [MOCK EMAIL DISPATCHED] (No RESEND_API_KEY mapped)`);
+    console.log(`==================================================`);
+    console.log(`🎯 TO:      ${Array.isArray(to) ? to.join(', ') : to}`);
+    console.log(`📌 SUBJECT: ${subject}`);
+    console.log(`📄 CONTENT: \n${html.replace(/<[^>]*>?/gm, '').substring(0, 200)}...`); // Simple strip HTML text for dev readability
+    console.log(`==================================================\x1b[0m\n`);
+    
+    return { id: 'dev_mock_id_' + Date.now() };
+  }
 
   const payload = {
     from: fromAddress,

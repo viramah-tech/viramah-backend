@@ -1,6 +1,6 @@
 'use strict';
 
-const submitService = require('../../services/paymentSubmitService');
+const submitService = require('../../services/payment-submit-service');
 const { success, error } = require('../../utils/apiResponse');
 
 const submit = async (req, res, next) => {

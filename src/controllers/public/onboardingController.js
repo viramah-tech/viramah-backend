@@ -2,7 +2,7 @@ const User = require('../../models/User');
 const RoomType = require('../../models/RoomType');
 const RoomHold = require('../../models/RoomHold');
 const { success, error } = require('../../utils/apiResponse');
-const { emitToAdmins, emitToUser } = require('../../services/socketService');
+const { emitToAdmins, emitToUser } = require('../../services/socket-service');
 
 /**
  * GET /api/public/onboarding/status

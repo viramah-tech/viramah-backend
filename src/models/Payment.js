@@ -302,13 +302,11 @@ paymentSchema.pre('save', function () {
 // Indexes
 paymentSchema.index({ userId: 1, status: 1 });
 paymentSchema.index({ status: 1, submittedAt: -1 });
-paymentSchema.index({ planId: 1 });
 paymentSchema.index({ transactionId: 1 });
 paymentSchema.index({ bookingId: 1, type: 1 });
 paymentSchema.index({ 'duplicateCheck.utrHash': 1 });
 paymentSchema.index({ utrHash: 1 });
 paymentSchema.index({ type: 1, status: 1, createdAt: -1 });
-paymentSchema.index({ idempotencyKey: 1 }, { sparse: true });
 
 // Guard: prevent breakdown from being modified once set
 paymentSchema.pre('save', function () {

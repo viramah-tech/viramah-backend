@@ -4,7 +4,7 @@
  * timerAdminController.js — V2.0 Admin timer control endpoints.
  */
 
-const timerAdminService = require('../../services/timerAdminService');
+const timerAdminService = require('../../services/timer-admin-service');
 const { success, error } = require('../../utils/apiResponse');
 
 // GET /api/v1/admin/bookings/:id/timers — timer overview

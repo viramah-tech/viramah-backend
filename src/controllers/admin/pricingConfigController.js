@@ -2,7 +2,7 @@
 
 const { PricingConfig } = require('../../models/PricingConfig');
 const AuditLog = require('../../models/AuditLog');
-const { invalidateConfigCache } = require('../../services/pricingService');
+const { invalidateConfigCache } = require('../../services/pricing-service');
 const { success, error } = require('../../utils/apiResponse');
 
 const wrap = (fn) => async (req, res, next) => {

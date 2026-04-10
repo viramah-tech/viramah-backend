@@ -138,7 +138,6 @@ const paymentVerificationSchema = new mongoose.Schema(
 );
 
 // ── Indexes ──────────────────────────────────────────────────────────────────
-paymentVerificationSchema.index({ paymentId: 1 }, { unique: true });
 paymentVerificationSchema.index({ bookingId: 1 });
 paymentVerificationSchema.index({ userId: 1 });
 paymentVerificationSchema.index({ status: 1, riskLevel: 1 });

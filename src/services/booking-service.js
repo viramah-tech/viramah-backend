@@ -18,10 +18,10 @@ const Booking = require('../models/Booking');
 const User = require('../models/User');
 const RoomType = require('../models/RoomType');
 const Payment = require('../models/Payment');
-const { getPricingConfig } = require('./pricingService');
-const { startPriceLock, startPaymentWindow, getTimerStatus, cancelTimer } = require('./timerService');
-const { processOcr, checkDuplicateUtr } = require('./paymentVerificationService');
-const { emitToAdmins, emitToUser } = require('./socketService');
+const { getPricingConfig } = require('./pricing-service');
+const { startPriceLock, startPaymentWindow, getTimerStatus, cancelTimer } = require('./timer-service');
+const { processOcr, checkDuplicateUtr } = require('./payment-verification-service');
+const { emitToAdmins, emitToUser } = require('./socket-service');
 
 const err = (message, statusCode = 400) => {
   const e = new Error(message);
@@ -429,9 +429,25 @@ async function approveBookingPayment(paymentId, adminId) {
  */
 async function getBookingStatus(userId) {
   const user = await User.findById(userId);
-  if (!user?.paymentProfile?.currentBookingId) return null;
+  let bookingId = user?.paymentProfile?.currentBookingId;
+  let booking = null;
 
-  const booking = await Booking.findById(user.paymentProfile.currentBookingId);
+  if (bookingId) {
+    booking = await Booking.findById(bookingId);
+  }
+
+  // Fallback: If user profile is out of sync, search active bookings directly
+  if (!booking) {
+    booking = await Booking.findActiveForUser(userId);
+    // Auto-heal the user record
+    if (booking && user) {
+      user.paymentProfile = user.paymentProfile || {};
+      user.paymentProfile.currentBookingId = booking._id;
+      user.paymentProfile.paymentStatus = user.paymentProfile.paymentStatus || 'BOOKING_PENDING';
+      await user.save().catch(e => console.error('[Auto-heal] Failed to sync user paymentProfile', e));
+    }
+  }
+
   if (!booking) return null;
 
   const timers = await getTimerStatus(booking._id);

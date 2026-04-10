@@ -126,7 +126,6 @@ const reconciliationLogSchema = new mongoose.Schema(
 );
 
 // ── Indexes ──────────────────────────────────────────────────────────────────
-reconciliationLogSchema.index({ bankReference: 1 }, { unique: true });
 reconciliationLogSchema.index({ matchedPaymentId: 1 });
 reconciliationLogSchema.index({ matchType: 1, createdAt: -1 });
 reconciliationLogSchema.index({ status: 1 });

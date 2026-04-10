@@ -3,7 +3,7 @@ const multer = require('multer');
 const { protect } = require('../../middleware/auth');
 const { authorize } = require('../../middleware/roleAuth');
 const { success, error } = require('../../utils/apiResponse');
-const { createS3Storage, getFileUrl, fileFilter } = require('../../services/s3Service');
+const { createS3Storage, getFileUrl, fileFilter } = require('../../services/s3service');
 
 const router = express.Router();
 

@@ -4,7 +4,7 @@
 // Write operations (create / approve / reject / receipt) live in
 // controllers/admin/paymentReviewController.js (mounted at /api/admin/payments-v2).
 
-const paymentService  = require('../../services/paymentService');
+const paymentService  = require('../../services/payment-service');
 const { success, error } = require('../../utils/apiResponse');
 
 // ── Get Payments (listing with filters) ───────────────────────────────────────

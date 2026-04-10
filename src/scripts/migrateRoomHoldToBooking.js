@@ -6,8 +6,8 @@ const connectDB = require('../config/db');
 const RoomHold = require('../models/RoomHold');
 const Booking = require('../models/Booking');
 const User = require('../models/User');
-const { calculateProjectedFinalBill } = require('../services/bookingService');
-const { getPricingConfig } = require('../services/pricingService');
+const { calculateProjectedFinalBill } = require('../services/booking-service');
+const { getPricingConfig } = require('../services/pricing-service');
 
 const mapStatus = (roomHoldStatus) => {
   switch (roomHoldStatus) {

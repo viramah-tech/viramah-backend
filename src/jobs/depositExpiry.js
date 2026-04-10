@@ -8,7 +8,7 @@
  */
 
 const cron = require('node-cron');
-const { expireOverdueHolds } = require('../services/depositService');
+const { expireOverdueHolds } = require('../services/deposit-service');
 
 function registerDepositExpiry() {
   cron.schedule('30 2 * * *', async () => {

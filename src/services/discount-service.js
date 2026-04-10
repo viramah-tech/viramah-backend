@@ -11,7 +11,7 @@
 
 const DiscountConfig = require('../models/DiscountConfig');
 const Adjustment     = require('../models/Adjustment');
-const { emitToAdmins, emitToUser } = require('./socketService');
+const { emitToAdmins, emitToUser } = require('./socket-service');
 
 const err = (m, s = 400) => Object.assign(new Error(m), { statusCode: s });
 

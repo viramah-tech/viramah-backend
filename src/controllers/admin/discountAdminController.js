@@ -4,7 +4,7 @@
  * discountAdminController.js — V2.0 Admin discount management endpoints.
  */
 
-const discountAdminService = require('../../services/discountAdminService');
+const discountAdminService = require('../../services/discount-admin-service');
 const { success, error } = require('../../utils/apiResponse');
 
 // POST /api/v1/admin/users/:userId/discounts — set user discount override

@@ -1,6 +1,6 @@
 'use strict';
 
-const planService = require('../../services/paymentPlanService');
+const planService = require('../../services/payment-plan-service');
 const { success, error } = require('../../utils/apiResponse');
 
 const getConfig = async (req, res, next) => {

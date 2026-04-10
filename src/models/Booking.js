@@ -144,6 +144,7 @@ const bookingSchema = new mongoose.Schema(
     bookingId: {
       type: String,
       unique: true,
+      default: generateBookingId,
     },
     userId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -155,7 +156,6 @@ const bookingSchema = new mongoose.Schema(
     selections: {
       roomType: {
         type: String,
-        enum: ['AXIS_PLUS_STUDIO', 'AXIS_STUDIO', 'COLLECTIVE_1BHK', 'NEXUS_1BHK'],
         required: [true, 'Room type is required'],
       },
       roomTypeId: {
@@ -448,8 +448,6 @@ bookingSchema.pre('save', function () {
 });
 
 /* ─── Indexes ─────────────────────────────────────────────────────────────── */
-
-bookingSchema.index({ bookingId: 1 }, { unique: true });
 
 bookingSchema.index(
   { userId: 1, status: 1 },

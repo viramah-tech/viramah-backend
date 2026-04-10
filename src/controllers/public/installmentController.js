@@ -6,7 +6,7 @@
  * Handles installment partial payments (e.g., ₹90,000 of ₹150,000).
  */
 
-const installmentService = require('../../services/installmentService');
+const installmentService = require('../../services/installment-service');
 const { success, error } = require('../../utils/apiResponse');
 
 // POST /api/v1/bookings/:id/installments/:installmentNumber/pay

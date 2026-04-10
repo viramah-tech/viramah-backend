@@ -4,7 +4,7 @@
  * referralController.js — V2.0 Referral system endpoints.
  */
 
-const referralService = require('../../services/referralService');
+const referralService = require('../../services/referral-service');
 const { success, error } = require('../../utils/apiResponse');
 
 // POST /api/v1/bookings/:id/referral — apply referral code

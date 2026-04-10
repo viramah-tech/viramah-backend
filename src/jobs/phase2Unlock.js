@@ -13,8 +13,8 @@
 const cron = require('node-cron');
 const PaymentPlan = require('../models/PaymentPlan');
 const AuditLog    = require('../models/AuditLog');
-const { computePhaseAmount } = require('../services/adjustmentEngine');
-const { emitToUser } = require('../services/socketService');
+const { computePhaseAmount } = require('../services/adjustment-engine');
+const { emitToUser } = require('../services/socket-service');
 
 /**
  * Core unlock logic — exported so it can be triggered manually for testing.
@@ -77,7 +77,7 @@ async function runPhase2UnlockJob() {
         const User = require('../models/User');
         const user = await User.findById(plan.userId).select('name email userId').lean();
         if (user?.email) {
-          const { sendEmail } = require('../services/emailService');
+          const { sendEmail } = require('../services/email-service');
           const firstName = (user.name || 'there').split(' ')[0];
           const dueDateStr = phase2.dueDate
             ? new Date(phase2.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })

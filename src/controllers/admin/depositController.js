@@ -3,10 +3,10 @@
 const RoomHold     = require('../../models/RoomHold');
 const RefundRecord = require('../../models/RefundRecord');
 const User         = require('../../models/User');
-const depositService = require('../../services/depositService');
+const depositService = require('../../services/deposit-service');
 const { success, error } = require('../../utils/apiResponse');
-const { sendEmail } = require('../../services/emailService');
-const { generateReceiptPdf } = require('../../services/pdfService');
+const { sendEmail } = require('../../services/email-service');
+const { generateReceiptPdf } = require('../../services/pdf-service');
 const { buildDepositReceiptEmailHtml } = require('../../templates/depositReceiptEmail');
 
 // ── GET /api/admin/deposits ───────────────────────────────────────────────────

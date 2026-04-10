@@ -1,7 +1,7 @@
-const userService = require('../../services/userService');
+const userService = require('../../services/user-service');
 const RoomType = require('../../models/RoomType');
 const { success, error } = require('../../utils/apiResponse');
-const { emitToAdmins, emitToUser } = require('../../services/socketService');
+const { emitToAdmins, emitToUser } = require('../../services/socket-service');
 
 const getUsers = async (req, res, next) => {
   try {

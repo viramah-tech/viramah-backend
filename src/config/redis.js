@@ -15,10 +15,21 @@ const initializeRedis = async () => {
     maxRetriesPerRequest: null, // Required by BullMQ
     lazyConnect: true,
     showFriendlyErrorStack: process.env.NODE_ENV !== 'production',
+    retryStrategy: (times) => {
+      // Limit retries so it doesn't spam the console indefinitely
+      if (times > 3) {
+        console.warn('[Redis] Max retries reached. Stopping reconnection attempts.');
+        return null;
+      }
+      return Math.min(times * 1000, 3000);
+    }
   });
 
   redisClient.on('error', (err) => {
-    console.error('[Redis] Connection error:', err.message);
+    // Suppress repeated ECONNREFUSED spam after initial warnings
+    if (redisClient.status !== 'reconnecting') {
+      console.error('[Redis] Connection error:', err.message || err.code);
+    }
   });
 
   redisClient.on('connect', () => {

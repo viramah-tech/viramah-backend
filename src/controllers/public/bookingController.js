@@ -7,8 +7,8 @@
  * track selection, booking status, and timer queries.
  */
 
-const bookingService = require('../../services/bookingService');
-const timerService   = require('../../services/timerService');
+const bookingService = require('../../services/booking-service');
+const timerService   = require('../../services/timer-service');
 const { success, error } = require('../../utils/apiResponse');
 
 // POST /api/v1/bookings — initiate booking (returns dual bill)
@@ -34,6 +34,24 @@ const getMyBooking = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
+// GET /api/v1/bookings/:id — fetch specific booking details
+const getById = async (req, res, next) => {
+  try {
+    const Booking = require('../../models/Booking');
+    const booking = await Booking.findById(req.params.id);
+    
+    if (!booking) return error(res, 'Booking not found', 404);
+    if (String(booking.userId) !== String(req.user._id)) {
+      return error(res, 'Forbidden', 403);
+    }
+
+    return success(res, { data: booking }, 'Booking details');
+  } catch (e) {
+    if (e.statusCode) return error(res, e.message, e.statusCode);
+    next(e);
+  }
+};
+
 // GET /api/v1/bookings/:id/bills — dual bill display data
 const getBills = async (req, res, next) => {
   try {
@@ -46,6 +64,7 @@ const getBills = async (req, res, next) => {
 
     return success(res, {
       bookingId: booking.bookingId,
+      _id: booking._id,
       status: booking.status,
       bookingBill: booking.displayBills?.bookingBill || null,
       projectedFinalBill: booking.displayBills?.projectedFinalBill || null,
@@ -82,7 +101,7 @@ const submitPayment = async (req, res, next) => {
 const selectTrack = async (req, res, next) => {
   try {
     const Booking = require('../../models/Booking');
-    const { getPricingConfig } = require('../../services/pricingService');
+    const { getPricingConfig } = require('../../services/pricing-service');
 
     const booking = await Booking.findById(req.params.id);
     if (!booking) return error(res, 'Booking not found', 404);
@@ -101,7 +120,7 @@ const selectTrack = async (req, res, next) => {
     const baseMonthly = cfg.roomPricing?.[booking.selections.roomType]?.baseMonthly || 0;
 
     // Get effective discount (hierarchical resolution)
-    const { getEffectiveDiscount } = require('../../services/discountAdminService');
+    const { getEffectiveDiscount } = require('../../services/discount-admin-service');
     const discountInfo = await getEffectiveDiscount(booking._id, trackId);
     const discountPercent = discountInfo.percent;
 
@@ -211,7 +230,7 @@ const selectTrack = async (req, res, next) => {
 // GET /api/v1/bookings/:id/payment-page — full payment page data with history
 const getPaymentPage = async (req, res, next) => {
   try {
-    const { getPaymentPageData } = require('../../services/installmentService');
+    const { getPaymentPageData } = require('../../services/installment-service');
     const installmentNumber = parseInt(req.query.installment, 10) || 1;
     const data = await getPaymentPageData(req.params.id, installmentNumber);
     return success(res, data, 'Payment page data');
@@ -232,6 +251,7 @@ const getTimer = async (req, res, next) => {
 module.exports = {
   initiate,
   getMyBooking,
+  getById,
   getBills,
   submitPayment,
   selectTrack,

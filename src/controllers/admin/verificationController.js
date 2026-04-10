@@ -9,9 +9,9 @@
  * - MESS/TRANSPORT payments → onServicePaymentApproved (update service status)
  */
 
-const paymentReviewService = require('../../services/paymentReviewService');
-const installmentService   = require('../../services/installmentService');
-const servicePaymentService = require('../../services/servicePaymentService');
+const paymentReviewService = require('../../services/payment-review-service');
+const installmentService   = require('../../services/installment-service');
+const servicePaymentService = require('../../services/service-payment-service');
 const Payment = require('../../models/Payment');
 const { success, error } = require('../../utils/apiResponse');
 

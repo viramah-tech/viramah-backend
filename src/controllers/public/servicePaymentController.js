@@ -4,7 +4,7 @@
  * servicePaymentController.js — V2.0 Standalone mess/transport payment endpoints.
  */
 
-const servicePaymentService = require('../../services/servicePaymentService');
+const servicePaymentService = require('../../services/service-payment-service');
 const { success, error } = require('../../utils/apiResponse');
 
 // GET /api/v1/bookings/:id/services — available service payment options

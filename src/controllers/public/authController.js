@@ -1,10 +1,10 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const User = require('../../models/User');
-const { getPricingConfig } = require('../../services/pricingService');
+const { getPricingConfig } = require('../../services/pricing-service');
 const { attachRoomTypeName } = require('../../utils/attachRoomType');
 const { success, error } = require('../../utils/apiResponse');
-const { sendEmail } = require('../../services/emailService');
+const { sendEmail } = require('../../services/email-service');
 const { buildWelcomeEmailHtml } = require('../../templates/welcomeEmail');
 const { buildPasswordResetOtpEmailHtml } = require('../../templates/passwordResetOtpEmail');
 const { buildPasswordChangedEmailHtml } = require('../../templates/passwordChangedEmail');
@@ -214,6 +214,20 @@ const login = async (req, res, next) => {
     delete userData.loginAttempts;
     delete userData.lockUntil;
     attachRoomTypeName(userData);
+
+    userData.agreements = {
+      termsAccepted:          user.termsAccepted ?? false,
+      termsAcceptedAt:        user.termsAcceptedAt ?? null,
+      termsVersion:           user.termsVersion ?? null,
+      privacyPolicyAccepted:  user.privacyPolicyAccepted ?? false,
+      privacyPolicyAcceptedAt:user.privacyPolicyAcceptedAt ?? null,
+      privacyPolicyVersion:   user.privacyPolicyVersion ?? null,
+    };
+
+    userData.verification = {
+      emailVerified:          user.emailVerified ?? false,
+      phoneVerified:          user.phoneVerified ?? false,
+    };
 
     return success(res, { token, user: userData }, 'Login successful');
   } catch (err) {

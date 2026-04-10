@@ -50,6 +50,9 @@ router.post(
 // GET /my-booking — current user's active booking
 router.get('/my-booking', bookingCtrl.getMyBooking);
 
+// GET /:id — fetch booking details
+router.get('/:id', [param('id').isMongoId()], validate, bookingCtrl.getById);
+
 // GET /:id/bills — dual bill display (booking + projected final)
 router.get(
   '/:id/bills',

@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { buildOtpEmailHtml } = require('../templates/otpEmail');
-const { sendEmail } = require('./emailService');
+const { sendEmail } = require('./email-service');
 
 // ── Configuration ────────────────────────────────────────────────────────────
 const OTP_LENGTH = 6;

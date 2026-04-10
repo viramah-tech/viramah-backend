@@ -1,4 +1,4 @@
-const roomTypeService = require('../../services/roomTypeService');
+const roomTypeService = require('../../services/room-type-service');
 const { success, error } = require('../../utils/apiResponse');
 
 /**

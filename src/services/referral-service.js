@@ -12,7 +12,7 @@
 
 const Booking = require('../models/Booking');
 const User = require('../models/User');
-const { getPricingConfig } = require('./pricingService');
+const { getPricingConfig } = require('./pricing-service');
 
 const err = (message, statusCode = 400) => {
   const e = new Error(message);
