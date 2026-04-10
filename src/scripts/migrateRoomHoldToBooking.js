@@ -6,6 +6,8 @@ const connectDB = require('../config/db');
 const RoomHold = require('../models/RoomHold');
 const Booking = require('../models/Booking');
 const User = require('../models/User');
+const { calculateProjectedFinalBill } = require('../services/bookingService');
+const { getPricingConfig } = require('../services/pricingService');
 
 const mapStatus = (roomHoldStatus) => {
   switch (roomHoldStatus) {
@@ -38,8 +40,12 @@ const runMigration = async () => {
       console.log('--- COMMIT MODE: Changes will be saved ---');
     }
 
+    const cfg = await getPricingConfig();
     const holds = await RoomHold.find({});
     console.log(`Found ${holds.length} RoomHolds to migrate.`);
+    
+    // Explicitly create Booking indexes before inserting
+    await Booking.init();
 
     let migratedCount = 0;
     let skippedCount = 0;
@@ -61,15 +67,28 @@ const runMigration = async () => {
         }
 
         const status = mapStatus(hold.status);
-        
+        const roomTypeName = 'AXIS_PLUS_STUDIO'; // Map logic could be advanced if we load RoomType
+        const projectedFinalBill = await calculateProjectedFinalBill(
+          roomTypeName, 11, false, false, cfg, user._id
+        );
+
         // Build the new booking object
         const bookingData = {
           userId: hold.userId,
           status,
           selections: {
-            roomType: 'AXIS_PLUS_STUDIO', // Fallback, would need actual join with RoomType to map name
+            roomType: roomTypeName,
             roomTypeId: hold.roomTypeId,
             tenure: 11,
+          },
+          displayBills: {
+            bookingBill: {
+              securityDeposit: { amount: 15000, total: 15000 },
+              registrationFee: { baseAmount: 1000, gstRate: 0.18, gstAmount: 180, total: 1180 },
+              totalPayable: 16180,
+              breakdown: []
+            },
+            projectedFinalBill
           },
           financials: {
             securityDeposit: (hold.depositAmount || 15000) * 100, // paise
