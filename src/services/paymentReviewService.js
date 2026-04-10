@@ -28,12 +28,14 @@ const User        = require('../models/User');
 const AuditLog    = require('../models/AuditLog');
 const engine      = require('./adjustmentEngine');
 const { emitToAdmins, emitToUser } = require('./socketService');
+const { startFinalPaymentTimer } = require('./timerService');
+const Booking     = require('../models/Booking');
 
 const err = (m, s = 400) => Object.assign(new Error(m), { statusCode: s });
 
 // ── Listing / detail ──────────────────────────────────────────────────────────
 
-async function listPayments({ status, paymentType, userId, planId, page = 1, limit = 20 } = {}) {
+async function listPayments({ status, paymentType, userId, planId, riskLevel, page = 1, limit = 20 } = {}) {
   const q = {};
   if (status)      q.status = status;
   if (paymentType) q.paymentType = paymentType;
@@ -48,7 +50,39 @@ async function listPayments({ status, paymentType, userId, planId, page = 1, lim
       .skip(skip).limit(limit),
     Payment.countDocuments(q),
   ]);
-  return { payments, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+
+  // Enrich each payment with a computed riskScore + riskLevel
+  const { getRiskLevel } = require('./paymentVerificationService');
+  const enriched = payments.map(p => {
+    const doc = p.toObject();
+    const score = _computeInlineRiskScore(doc);
+    doc.riskScore = score;
+    doc.riskLevel = getRiskLevel(score);
+    return doc;
+  });
+
+  // Post-query filter by riskLevel if requested
+  let result = enriched;
+  if (riskLevel) {
+    const upper = riskLevel.toUpperCase();
+    result = enriched.filter(p => p.riskLevel === upper);
+  }
+
+  return { payments: result, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+}
+
+// Lightweight inline risk score — avoids DB round-trip per payment
+function _computeInlineRiskScore(payment) {
+  let score = 0;
+  const ocr = payment.proofDocument?.ocrData;
+  if (ocr?.extractedAmount && Math.abs(ocr.extractedAmount - payment.amount) > 10) score += 20;
+  if (payment.duplicateCheck?.isDuplicate) score += 50;
+  if (ocr?.confidenceScore != null && ocr.confidenceScore < 80) score += 10;
+  if (payment.createdAt) {
+    const ageHours = (Date.now() - new Date(payment.createdAt).getTime()) / 3600000;
+    if (ageHours < 24) score += 5; // new user / recent
+  }
+  return Math.min(100, score);
 }
 
 async function getPaymentDetail(paymentId) {
@@ -182,6 +216,91 @@ async function approvePayment(paymentId, actor) {
   });
 
   return { payment, transaction: txn };
+}
+
+/**
+ * Approve a BOOKING payment — lighter than the 9-step rent approval.
+ * 1. Verify payment status === 'pending'
+ * 2. Set Payment.status = 'approved'
+ * 3. Create credit Transaction
+ * 4. Update Booking.status = 'BOOKING_CONFIRMED'
+ * 5. Start 7-day final payment timer
+ * 6. Update User.paymentProfile.paymentStatus
+ * 7. Emit socket event
+ * 8. Create AuditLog entry
+ */
+async function approveBookingPayment(paymentId, actor) {
+  const payment = await Payment.findById(paymentId);
+  if (!payment) throw err('Payment not found', 404);
+  if (payment.status !== 'pending') throw err(`Cannot approve a payment with status '${payment.status}'`, 400);
+
+  const booking = await Booking.findById(payment.bookingId);
+  if (!booking) throw err('Linked booking not found', 404);
+
+  payment.status = 'approved';
+  payment.reviewedBy = actor || {};
+  payment.reviewedAt = new Date();
+  
+  // Create Ledger Txn
+  const lastTxn = await Transaction.findOne({ userId: payment.userId }).sort({ createdAt: -1 });
+  const balanceBefore = lastTxn?.balanceAfter ?? 0;
+  const balanceAfter = balanceBefore + (payment.amount || 0);
+
+  const txn = await Transaction.create({
+    paymentId: payment._id,
+    bookingId: payment.bookingId,
+    userId: payment.userId,
+    sourceType: 'payment',
+    sourceId: payment._id,
+    direction: 'credit',
+    type: 'credit',
+    amount: payment.amount,
+    description: `Booking Payment approved`,
+    status: 'completed',
+    postingStatus: 'posted',
+    postedAt: new Date(),
+    balanceBefore,
+    balanceAfter,
+  });
+
+  payment.transactionRef = txn._id;
+  await payment.save();
+
+  // Update Booking
+  booking.status = 'BOOKING_CONFIRMED';
+  booking.financials.totalPaid = payment.amount;
+  booking.version = (booking.version || 0) + 1;
+  await booking.save();
+
+  // Start 7-day timer
+  const expiryDate = await startFinalPaymentTimer(booking._id, 7);
+
+  // Update user profile
+  await User.findByIdAndUpdate(payment.userId, { 
+    'paymentProfile.paymentStatus': 'BOOKING_CONFIRMED',
+    paymentStatus: 'approved' // legacy
+  });
+
+  emitToUser(String(payment.userId), 'payment:approved', {
+    paymentId: payment._id,
+    bookingId: booking._id,
+    status: 'BOOKING_CONFIRMED',
+    finalPaymentDeadline: expiryDate
+  });
+
+  await AuditLog.create({
+    userId: actor?.userId || null,
+    userName: actor?.name || '',
+    userRole: actor?.role || '',
+    action: 'BOOKING_APPROVED',
+    resource: 'payment',
+    resourceId: String(payment._id),
+    method: 'PATCH',
+    path: `/api/admin/payments/${payment._id}/approve-booking`,
+    statusCode: 200,
+  });
+
+  return { payment, booking, transaction: txn };
 }
 
 // ── Reject ────────────────────────────────────────────────────────────────────
@@ -399,6 +518,7 @@ module.exports = {
   listPayments,
   getPaymentDetail,
   approvePayment,
+  approveBookingPayment,
   rejectPayment,
   holdPayment,
   recordManualPayment,
