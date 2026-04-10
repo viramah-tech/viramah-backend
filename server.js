@@ -25,6 +25,7 @@ const { registerOrphanReconciler } = require('./src/jobs/orphanReconciler');
 const { registerOverdueMarker } = require('./src/jobs/overdueMarker');
 const { registerDepositExpiry } = require('./src/jobs/depositExpiry');
 const { registerPaymentReminders } = require('./src/jobs/paymentReminders');
+const { registerV2BookingTimers } = require('./src/jobs/v2BookingTimers');
 
 const app = express();
 
@@ -155,6 +156,9 @@ const start = async () => {
 
   // R5.1 + R5.5: Payment reminders — daily at 08:00 AM IST
   registerPaymentReminders();
+
+  // Phase 6: V2 Booking Timers & Reminders
+  registerV2BookingTimers();
 
   server.listen(PORT, () => {
     console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
