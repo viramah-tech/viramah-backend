@@ -62,4 +62,18 @@ router.post(
   ctrl.adjustCredit
 );
 
+// PATCH /api/v1/admin/bookings/:id/timer — set booking timer (payment expiry or final deadline)
+router.patch(
+  '/:id/timer',
+  [
+    param('id').isMongoId(),
+    body('timerType').isIn(['bookingPaymentExpiry', 'finalPaymentDeadline']).withMessage('timerType must be bookingPaymentExpiry or finalPaymentDeadline'),
+    body('deadline').notEmpty().withMessage('deadline is required (ISO date string)'),
+  ],
+  validate,
+  authorizeV3('MANAGE_BOOKINGS'),
+  auditLog('SET_BOOKING_TIMER', 'booking'),
+  ctrl.setTimer
+);
+
 module.exports = router;

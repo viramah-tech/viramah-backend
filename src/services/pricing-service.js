@@ -34,16 +34,46 @@ const getPricingConfig = async () => {
   if (_configCache && now < _cacheExpiresAt) {
     return _configCache;
   }
-  let config = await PricingConfig.findOne().lean();
-  if (!config) {
+  // Using findOne() without .lean() so Mongoose applies schema defaults to existing documents
+  let configDoc = await PricingConfig.findOne();
+  if (!configDoc) {
     // Seed a default if somehow missing at runtime
-    const created = await PricingConfig.create({});
-    config = created.toObject();
+    configDoc = await PricingConfig.create({});
     console.warn('[PricingService] PricingConfig was missing — seeded default.');
+  } else {
+    // Ensure nested defaults exist for V2 migrations on existing documents
+    let modified = false;
+    if (!configDoc.roomPricing || !configDoc.roomPricing.NEXUS_1BHK) {
+      configDoc.roomPricing = {
+        AXIS_PLUS_STUDIO: { baseMonthly: 24538 },
+        AXIS_STUDIO: { baseMonthly: 21563 },
+        COLLECTIVE_1BHK: { baseMonthly: 18587 },
+        NEXUS_1BHK: { baseMonthly: 13527 }
+      };
+      modified = true;
+    }
+    if (!configDoc.discounts || !configDoc.discounts.fullTenure) {
+      configDoc.discounts = {
+        fullTenure: { defaultPercent: 40, maxPercent: 50 },
+        halfYearly: { defaultPercent: 25, maxPercent: 35 }
+      };
+      if (typeof configDoc.discountFull === 'number') {
+        configDoc.discounts.fullTenure.defaultPercent = configDoc.discountFull * 100;
+      }
+      if (typeof configDoc.discountHalf === 'number') {
+        configDoc.discounts.halfYearly.defaultPercent = configDoc.discountHalf * 100;
+      }
+      modified = true;
+    }
+    if (modified) {
+      await configDoc.save();
+      console.warn('[PricingService] Existing PricingConfig was upgraded with V2 nested defaults.');
+    }
   }
-  _configCache = config;
+  
+  _configCache = configDoc.toObject();
   _cacheExpiresAt = now + CONFIG_CACHE_TTL_MS;
-  return config;
+  return _configCache;
 };
 
 /** Invalidate the in-memory config cache (call after admin updates PricingConfig). */

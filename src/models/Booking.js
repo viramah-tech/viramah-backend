@@ -27,6 +27,7 @@
 
 const mongoose = require('mongoose');
 const { prefixed } = require('../utils/ulid');
+const { CANONICAL_ROOM_TYPE_CODES } = require('../utils/roomTypeCode');
 
 /* ─── Booking ID Generator ────────────────────────────────────────────────── */
 
@@ -158,6 +159,11 @@ const bookingSchema = new mongoose.Schema(
         type: String,
         required: [true, 'Room type is required'],
       },
+      roomTypeCode: {
+        type: String,
+        enum: CANONICAL_ROOM_TYPE_CODES,
+        default: undefined,
+      },
       roomTypeId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'RoomType',
@@ -177,7 +183,7 @@ const bookingSchema = new mongoose.Schema(
     // ── V2.0 DUAL BILL DISPLAY DATA ─────────────────────────────────────
     // For UI rendering only. Calculated at booking creation, updated on track selection.
     displayBills: {
-      // Booking amount breakdown (fixed ₹16,180)
+      // Booking amount breakdown (fixed ₹16,000 — no GST)
       bookingBill: {
         securityDeposit: {
           amount:    { type: Number, default: 15000 },
@@ -187,11 +193,11 @@ const bookingSchema = new mongoose.Schema(
         },
         registrationFee: {
           baseAmount: { type: Number, default: 1000 },
-          gstRate:    { type: Number, default: 0.18 },
-          gstAmount:  { type: Number, default: 180 },
-          total:      { type: Number, default: 1180 },
+          gstRate:    { type: Number, default: 0 },
+          gstAmount:  { type: Number, default: 0 },
+          total:      { type: Number, default: 1000 },
         },
-        totalPayable: { type: Number, default: 16180 },
+        totalPayable: { type: Number, default: 16000 },
         breakdown: [billBreakdownLineSchema],
       },
       // Projected final bill — computed for BOTH track options
@@ -207,7 +213,7 @@ const bookingSchema = new mongoose.Schema(
             discountPercent:    { type: Number, default: 40 },
             discountAmount:     { type: Number, default: null },
             discountedSubtotal: { type: Number, default: null },
-            gstRate:            { type: Number, default: 0.18 },
+            gstRate:            { type: Number, default: 0.12 },
             gstAmount:          { type: Number, default: null },
             total:              { type: Number, default: null },
           },
@@ -261,8 +267,8 @@ const bookingSchema = new mongoose.Schema(
       // Booking amount components
       securityDeposit:    { type: Number, default: 15000 },    // ₹15,000
       registrationFee:    { type: Number, default: 1000 },     // ₹1,000
-      registrationGst:    { type: Number, default: 180 },      // ₹180 (18% of reg fee)
-      totalBookingAmount: { type: Number, default: 16180 },    // ₹16,180
+      registrationGst:    { type: Number, default: 0 },        // No GST on registration fee
+      totalBookingAmount: { type: Number, default: 16000 },    // ₹16,000 (15000 + 1000, no GST)
 
       // Rent calculations (populated after track selection)
       baseRentPerMonth:   { type: Number, default: null },
@@ -279,7 +285,7 @@ const bookingSchema = new mongoose.Schema(
       discountedRent:     { type: Number, default: null },
 
       // Tax
-      taxRate:    { type: Number, default: 0.18 },              // 18% GST
+      taxRate:    { type: Number, default: 0.12 },              // 12% GST on room rent only
       taxAmount:  { type: Number, default: null },
 
       // Final rent total

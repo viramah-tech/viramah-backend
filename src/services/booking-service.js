@@ -19,6 +19,7 @@ const User = require('../models/User');
 const RoomType = require('../models/RoomType');
 const Payment = require('../models/Payment');
 const { getPricingConfig } = require('./pricing-service');
+const { resolveRoomTypeCodeFromCandidates } = require('../utils/roomTypeCode');
 const { startPriceLock, startPaymentWindow, getTimerStatus, cancelTimer } = require('./timer-service');
 const { processOcr, checkDuplicateUtr } = require('./payment-verification-service');
 const { emitToAdmins, emitToUser } = require('./socket-service');
@@ -29,35 +30,23 @@ const err = (message, statusCode = 400) => {
   return e;
 };
 
+const resolvePricingForRoom = (cfg, roomType) => {
+  const roomTypeCode = resolveRoomTypeCodeFromCandidates(roomType?.name, roomType?.displayName);
+  if (!roomTypeCode) {
+    throw err('Unable to resolve canonical room type for pricing', 422);
+  }
+
+  const baseMonthly = Number(cfg?.roomPricing?.[roomTypeCode]?.baseMonthly || 0);
+  if (!Number.isFinite(baseMonthly) || baseMonthly <= 0) {
+    const pricingErr = err(`PRICING_CONFIG_MISSING: base monthly rent for ${roomTypeCode} is not configured`, 422);
+    pricingErr.code = 'PRICING_CONFIG_MISSING';
+    throw pricingErr;
+  }
+
+  return { roomTypeCode, baseMonthly };
+};
+
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
-
-/**
- * Calculate room rent for a given track option.
- * @param {number} baseMonthly - Monthly base rent (rupees)
- * @param {number} months - Number of months
- * @param {number} discountPercent - Discount as whole number (e.g. 40 for 40%)
- * @param {number} gstRate - GST rate as decimal (e.g. 0.18)
- * @returns {object} Room rent breakdown
- */
-function calculateRoomRent(baseMonthly, months, discountPercent, gstRate = 0.18) {
-  const subtotal = Math.round(baseMonthly * months);
-  const discountAmount = Math.round(subtotal * (discountPercent / 100));
-  const discountedSubtotal = subtotal - discountAmount;
-  const gstAmount = Math.round(discountedSubtotal * gstRate);
-  const total = discountedSubtotal + gstAmount;
-
-  return {
-    baseMonthly,
-    tenure: months,
-    subtotal,
-    discountPercent,
-    discountAmount,
-    discountedSubtotal,
-    gstRate,
-    gstAmount,
-    total,
-  };
-}
 
 /**
  * Calculate service cost (mess or transport).
@@ -71,23 +60,20 @@ function calculateService(monthlyRate, tenure, discountPercent = 0) {
 }
 
 /**
- * Build the static booking bill breakdown (always ₹16,180).
+ * Build the static booking bill breakdown (always ₹16,000).
  */
 function buildBookingBill(cfg) {
   const secDep = cfg.bookingAmount?.securityDeposit || 15000;
   const regFee = cfg.bookingAmount?.registrationFee || 1000;
-  const regGstRate = cfg.bookingAmount?.registrationGstRate || 0.18;
-  const regGst = Math.round(regFee * regGstRate);
-  const total = secDep + regFee + regGst;
+  const total  = secDep + regFee; // No GST on either
 
   return {
     securityDeposit: { amount: secDep, gstRate: 0, gstAmount: 0, total: secDep },
-    registrationFee: { baseAmount: regFee, gstRate: regGstRate, gstAmount: regGst, total: regFee + regGst },
+    registrationFee: { baseAmount: regFee, gstRate: 0, gstAmount: 0, total: regFee },
     totalPayable: total,
     breakdown: [
       { label: 'Security Deposit (Refundable)', amount: secDep, type: 'SECURITY' },
-      { label: 'Registration Fee', amount: regFee, type: 'REGISTRATION_BASE' },
-      { label: 'GST (18%)', amount: regGst, type: 'TAX' },
+      { label: 'Registration Fee (Non-Refundable)', amount: regFee, type: 'REGISTRATION_BASE' },
     ],
   };
 }
@@ -105,18 +91,26 @@ async function initiateBooking(userId, { roomTypeId, addOns = {} }) {
   // Check for existing active booking
   const existing = await Booking.findActiveForUser(userId);
   if (existing) {
-    throw err('You already have an active booking', 409);
+    if (existing.status === 'PENDING_BOOKING_PAYMENT') {
+      // User is changing their room selection before paying the deposit.
+      // Cancel the old timer and delete the old booking to allow replacement.
+      await cancelTimer(existing._id);
+      await Booking.findByIdAndDelete(existing._id);
+    } else {
+      throw err('You already have an active booking', 409);
+    }
   }
 
   const roomType = await RoomType.findById(roomTypeId);
   if (!roomType) throw err('Room type not found', 404);
 
   const cfg = await getPricingConfig();
+  const { roomTypeCode, baseMonthly } = resolvePricingForRoom(cfg, roomType);
 
   // Build dual bills
   const bookingBill = buildBookingBill(cfg);
   const projectedFinalBill = await calculateProjectedFinalBill(
-    roomType.name, 11, !!addOns.mess, !!addOns.transport, cfg, userId
+    roomTypeCode, 11, !!addOns.mess, !!addOns.transport, cfg, userId
   );
 
   // Calculate service totals for servicePayments initialization
@@ -131,6 +125,7 @@ async function initiateBooking(userId, { roomTypeId, addOns = {} }) {
     userId,
     selections: {
       roomType: roomType.name,
+      roomTypeCode,
       roomTypeId: roomType._id,
       tenure: 11,
       mess: { selected: !!addOns.mess, type: addOns.mess ? 'LUNCH' : null },
@@ -143,9 +138,9 @@ async function initiateBooking(userId, { roomTypeId, addOns = {} }) {
     financials: {
       securityDeposit: 15000,
       registrationFee: 1000,
-      registrationGst: 180,
-      totalBookingAmount: 16180,
-      baseRentPerMonth: cfg.roomPricing?.[roomType.name]?.baseMonthly || null,
+      registrationGst: 0,          // No GST on registration
+      totalBookingAmount: 16000,   // 15000 + 1000
+      baseRentPerMonth: baseMonthly,
       messTotal: messTotalAmount,
       transportTotal: transportTotalAmount,
       totalPaid: 0,
@@ -161,7 +156,8 @@ async function initiateBooking(userId, { roomTypeId, addOns = {} }) {
       },
     },
     timers: {
-      bookingPaymentExpiry: new Date(Date.now() + (cfg.timers?.bookingPaymentMinutes || 30) * 60 * 1000),
+      bookingPaymentExpiry: new Date(Date.now() + (cfg.timers?.bookingPaymentMinutes || 4320) * 60 * 1000),
+      // 4320 minutes = 3 days default for booking payment submission window
     },
     status: 'PENDING_BOOKING_PAYMENT',
   });
@@ -190,8 +186,21 @@ async function initiateBooking(userId, { roomTypeId, addOns = {} }) {
  * This is what users see BEFORE selecting a track.
  */
 async function calculateProjectedFinalBill(roomTypeName, tenure, hasMess, hasTransport, cfg, userId) {
-  const baseMonthly = cfg.roomPricing?.[roomTypeName]?.baseMonthly || 0;
-  const gstRate = cfg.gst?.rate || 0.18;
+  const roomTypeCode = resolveRoomTypeCodeFromCandidates(roomTypeName);
+  if (!roomTypeCode) {
+    const pricingErr = err('Unable to resolve canonical room type for projected billing', 422);
+    pricingErr.code = 'PRICING_CONFIG_MISSING';
+    throw pricingErr;
+  }
+
+  const baseMonthly = Number(cfg?.roomPricing?.[roomTypeCode]?.baseMonthly || 0);
+  if (!Number.isFinite(baseMonthly) || baseMonthly <= 0) {
+    const pricingErr = err(`PRICING_CONFIG_MISSING: base monthly rent for ${roomTypeCode} is not configured`, 422);
+    pricingErr.code = 'PRICING_CONFIG_MISSING';
+    throw pricingErr;
+  }
+
+  const gstRate = cfg.gst?.rate || 0.12;
 
   // Check for user-specific discount overrides
   let fullDiscount = cfg.discounts?.fullTenure?.defaultPercent || 40;
@@ -216,17 +225,35 @@ async function calculateProjectedFinalBill(roomTypeName, tenure, hasMess, hasTra
   const messData = hasMess ? calculateService(cfg.servicePricing?.mess?.monthly || 2000, tenure) : null;
   const transportData = hasTransport ? calculateService(cfg.servicePricing?.transport?.monthly || 2000, tenure) : null;
 
-  // ── Full Tenure Option (40% discount by default) ──
-  const fullRoomRent = calculateRoomRent(baseMonthly, tenure, fullDiscount, gstRate);
-  const fullGrandTotal = fullRoomRent.total
+  // ── Full Tenure Option ──
+  const fullDiscountFraction = fullDiscount / 100;
+  const fullDiscountedBase = Math.round(baseMonthly * (1 - fullDiscountFraction));
+  const fullGst = Math.round(fullDiscountedBase * gstRate);
+  const fullMonthly = fullDiscountedBase + fullGst;
+  const fullRoomRentTotal = fullMonthly * tenure;
+
+  const fullGrandTotal = fullRoomRentTotal
     + (messData?.total || 0)
     + (transportData?.total || 0);
-  const fullAfterDeductions = fullGrandTotal - 15000;  // Explicit -₹15,000
+  const fullAfterDeductions = fullGrandTotal - 15000; // explicit -₹15,000 security credit
 
   const fullTenure = {
     track: 'FULL_TENURE',
     discountPercent: fullDiscount,
-    roomRent: fullRoomRent,
+    roomRent: {
+      baseMonthly,
+      discountedBase: fullDiscountedBase,
+      gstPerMonth: fullGst,
+      monthlyTotal: fullMonthly,
+      tenure,
+      total: fullRoomRentTotal,
+      // Legacy compat fields
+      subtotal: Math.round(baseMonthly * tenure),
+      discountAmount: Math.round(baseMonthly * tenure * fullDiscountFraction),
+      discountedSubtotal: fullDiscountedBase * tenure,
+      gstRate,
+      gstAmount: fullGst * tenure,
+    },
     mess: messData,
     transport: transportData,
     deductions: {
@@ -238,10 +265,14 @@ async function calculateProjectedFinalBill(roomTypeName, tenure, hasMess, hasTra
     totalAfterDeductions: fullAfterDeductions,
   };
 
-  // ── Half Yearly Option (25% discount by default) ──
-  const halfFirstRent = calculateRoomRent(baseMonthly, 6, halfDiscount, gstRate);
-  const halfSecondRent = calculateRoomRent(baseMonthly, 5, halfDiscount, gstRate);
-  const halfGrandTotal = halfFirstRent.total + halfSecondRent.total
+  // ── Half Yearly Option ──
+  const halfDiscountFraction = halfDiscount / 100;
+  const halfDiscountedBase = Math.round(baseMonthly * (1 - halfDiscountFraction));
+  const halfGst = Math.round(halfDiscountedBase * gstRate);
+  const halfMonthly = halfDiscountedBase + halfGst;
+  const halfFirstTotal  = halfMonthly * 6;
+  const halfSecondTotal = halfMonthly * 5;
+  const halfGrandTotal  = halfFirstTotal + halfSecondTotal
     + (messData?.total || 0)
     + (transportData?.total || 0);
   const halfAfterDeductions = halfGrandTotal - 15000;
@@ -251,14 +282,20 @@ async function calculateProjectedFinalBill(roomTypeName, tenure, hasMess, hasTra
     discountPercent: halfDiscount,
     firstInstallment: {
       months: 6,
-      totalAmount: halfFirstRent.total,
-      breakdown: halfFirstRent,
+      totalAmount: halfFirstTotal,
+      breakdown: {
+        baseMonthly, discountedBase: halfDiscountedBase,
+        gstPerMonth: halfGst, monthlyTotal: halfMonthly,
+      },
     },
     secondInstallment: {
       months: 5,
       dueDate: null, // Set after booking confirmation
-      totalAmount: halfSecondRent.total,
-      breakdown: halfSecondRent,
+      totalAmount: halfSecondTotal,
+      breakdown: {
+        baseMonthly, discountedBase: halfDiscountedBase,
+        gstPerMonth: halfGst, monthlyTotal: halfMonthly,
+      },
     },
     mess: messData,
     transport: transportData,
@@ -282,6 +319,11 @@ async function submitBookingPayment(userId, bookingId, { transactionId, receiptU
   if (!booking) throw err('Booking not found', 404);
   if (String(booking.userId) !== String(userId)) throw err('Forbidden', 403);
   if (booking.status !== 'PENDING_BOOKING_PAYMENT') throw err('Invalid booking status for payment', 400);
+
+  const expiry = booking.timers?.bookingPaymentExpiry;
+  if (expiry && Date.now() > new Date(expiry).getTime()) {
+    throw err('BOOKING_PAYMENT_WINDOW_EXPIRED', 409);
+  }
 
   // Cancel price lock since they initiated payment
   await cancelTimer(booking._id, 'price-lock');

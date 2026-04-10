@@ -86,9 +86,16 @@ async function submitServicePayment(bookingId, serviceType, amount, proofData, p
     throw err(`${serviceType} payment already completed`, 400);
   }
 
-  const remaining = (service.totalAmount || 0) - (service.amountPaid || 0);
+  const approvedAmt = (service.payments || [])
+    .filter(p => p.status === 'APPROVED')
+    .reduce((s, p) => s + p.amount, 0);
+  const pendingAmt = (service.payments || [])
+    .filter(p => p.status === 'PENDING')
+    .reduce((s, p) => s + p.amount, 0);
+  const remaining = (service.totalAmount || 0) - approvedAmt - pendingAmt;
+
   if (amount > remaining) {
-    throw err(`Cannot pay more than ₹${remaining.toLocaleString()} for ${serviceType}`, 400);
+    throw err(`Cannot submit more than ₹${remaining.toLocaleString()} for ${serviceType} (includes pending approvals)`, 400);
   }
   if (amount < 500) {
     throw err('Minimum service payment is ₹500', 400);

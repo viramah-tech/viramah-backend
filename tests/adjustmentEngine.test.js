@@ -217,6 +217,70 @@ test('SANITY: discount never applied to security/registration/lunch/transport in
   assert.strictEqual(transp.amount,   22000);
 });
 
+// ── Tariff Snapshot Tests ─────────────────────────────────────────────────────
+// Validates per-month rounding formula against the ground-truth tariff card.
+// Formula: discountedBase = Math.round(base × (1 - discount%/100))
+//          gstAmt         = Math.round(discountedBase × 0.12)
+//          monthlyTotal   = discountedBase + gstAmt
+
+console.log('\nTariff snapshot — all room types, both plans\n');
+
+const GST = 0.12;
+const SECURITY = 15000;
+const REGISTRATION = 1000;
+
+function calcMonthly(baseMonthly, discountPercent) {
+  const discountedBase = Math.round(baseMonthly * (1 - discountPercent / 100));
+  const gstAmt = Math.round(discountedBase * GST);
+  return discountedBase + gstAmt;
+}
+
+const rooms = [
+  { name: 'AXIS_PLUS_STUDIO', base: 24538 },
+  { name: 'AXIS_STUDIO',      base: 21563 },
+  { name: 'COLLECTIVE_1BHK',  base: 18587 },
+  { name: 'NEXUS_1BHK',       base: 13527 },
+];
+
+const halfYearlyExpected = {
+  AXIS_PLUS_STUDIO: { inst1: 139672, inst2: 103060 },
+  AXIS_STUDIO:      { inst1: 124678, inst2: 90565 },
+  COLLECTIVE_1BHK:  { inst1: 109678, inst2: 78065 },
+  NEXUS_1BHK:       { inst1: 84172,  inst2: 56810 },
+};
+
+const fullTenureExpected = {
+  AXIS_PLUS_STUDIO: 197390,
+  AXIS_STUDIO:      175401,
+  COLLECTIVE_1BHK:  153390,
+  NEXUS_1BHK:       115990,
+};
+
+rooms.forEach(({ name, base }) => {
+  test(`${name} — half-yearly installment 1 matches tariff`, () => {
+    const monthly = calcMonthly(base, 25);
+    const inst1Room = monthly * 6;
+    const inst1Total = inst1Room + SECURITY + REGISTRATION;
+    assert.strictEqual(inst1Total, halfYearlyExpected[name].inst1,
+      `${name} half-yearly inst1: expected ${halfYearlyExpected[name].inst1}, got ${inst1Total}`);
+  });
+
+  test(`${name} — half-yearly installment 2 matches tariff`, () => {
+    const monthly = calcMonthly(base, 25);
+    const inst2 = monthly * 5;
+    assert.strictEqual(inst2, halfYearlyExpected[name].inst2,
+      `${name} half-yearly inst2: expected ${halfYearlyExpected[name].inst2}, got ${inst2}`);
+  });
+
+  test(`${name} — full-tenure total matches tariff`, () => {
+    const monthly = calcMonthly(base, 40);
+    const roomRent11 = monthly * 11;
+    const total = roomRent11 + SECURITY + REGISTRATION;
+    assert.strictEqual(total, fullTenureExpected[name],
+      `${name} full-tenure: expected ${fullTenureExpected[name]}, got ${total}`);
+  });
+});
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed > 0 ? 1 : 0);

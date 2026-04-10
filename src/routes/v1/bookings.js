@@ -26,6 +26,7 @@ const { body, param, query } = require('express-validator');
 const { validate } = require('../../middleware/validate');
 const { protect } = require('../../middleware/auth');
 const { authorize } = require('../../middleware/roleAuth');
+const { requireBookingOwnership } = require('../../middleware/bookingOwnership');
 const idempotency = require('../../middleware/idempotency');
 
 const bookingCtrl     = require('../../controllers/public/bookingController');
@@ -51,13 +52,14 @@ router.post(
 router.get('/my-booking', bookingCtrl.getMyBooking);
 
 // GET /:id — fetch booking details
-router.get('/:id', [param('id').isMongoId()], validate, bookingCtrl.getById);
+router.get('/:id', [param('id').isMongoId()], validate, requireBookingOwnership, bookingCtrl.getById);
 
 // GET /:id/bills — dual bill display (booking + projected final)
 router.get(
   '/:id/bills',
   [param('id').isMongoId()],
   validate,
+  requireBookingOwnership,
   bookingCtrl.getBills
 );
 
@@ -66,6 +68,7 @@ router.get(
   '/:id/timer',
   [param('id').isMongoId()],
   validate,
+  requireBookingOwnership,
   bookingCtrl.getTimer
 );
 
@@ -80,6 +83,7 @@ router.post(
     body('paymentMethod').optional().isIn(['UPI', 'NEFT', 'RTGS', 'IMPS', 'CASH', 'BANK_TRANSFER', 'CHEQUE', 'OTHER']),
   ],
   validate,
+  requireBookingOwnership,
   bookingCtrl.submitPayment
 );
 
@@ -92,6 +96,7 @@ router.post(
     body('trackId').isIn(['FULL_TENURE', 'HALF_YEARLY']).withMessage('trackId must be FULL_TENURE or HALF_YEARLY'),
   ],
   validate,
+  requireBookingOwnership,
   bookingCtrl.selectTrack
 );
 
@@ -103,6 +108,7 @@ router.get(
     query('installment').optional().isInt({ min: 1, max: 2 }),
   ],
   validate,
+  requireBookingOwnership,
   bookingCtrl.getPaymentPage
 );
 
@@ -116,6 +122,7 @@ router.get(
     param('installmentNumber').isInt({ min: 1, max: 2 }),
   ],
   validate,
+  requireBookingOwnership,
   installmentCtrl.getInstallmentData
 );
 
@@ -132,6 +139,7 @@ router.post(
     body('paymentMethod').optional().isIn(['UPI', 'BANK_TRANSFER', 'CASH']),
   ],
   validate,
+  requireBookingOwnership,
   installmentCtrl.submitPartialPayment
 );
 
@@ -142,6 +150,7 @@ router.get(
   '/:id/services',
   [param('id').isMongoId()],
   validate,
+  requireBookingOwnership,
   serviceCtrl.getServices
 );
 
@@ -158,6 +167,7 @@ router.post(
     body('paymentMethod').optional().isIn(['UPI', 'BANK_TRANSFER', 'CASH']),
   ],
   validate,
+  requireBookingOwnership,
   serviceCtrl.submitServicePayment
 );
 
@@ -177,6 +187,7 @@ router.post(
     body('referralCode').trim().notEmpty().withMessage('Referral code is required'),
   ],
   validate,
+  requireBookingOwnership,
   referralCtrl.applyReferral
 );
 
@@ -185,6 +196,7 @@ router.post(
   '/:id/use-referral-credit',
   [param('id').isMongoId()],
   validate,
+  requireBookingOwnership,
   referralCtrl.useCredit
 );
 

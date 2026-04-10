@@ -7,6 +7,7 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "seed": "node src/scripts/seed.js",
+    "seed:rooms": "node src/scripts/seedRooms.js",
     "seed:discount": "node src/scripts/seedDiscountConfig.js",
     "migrate:v2": "node src/scripts/migratePaymentsToV2.js",
     "migrate:v2:commit": "node src/scripts/migratePaymentsToV2.js --commit",
@@ -14,7 +15,9 @@
     "migrate:v3:booking:commit": "node src/scripts/migrateRoomHoldToBooking.js --commit",
     "migrate:v3:payment": "node src/scripts/migratePaymentSchema.js",
     "migrate:v3:payment:commit": "node src/scripts/migratePaymentSchema.js --commit",
-    "test": "node tests/adjustmentEngine.test.js"
+    "test": "node tests/adjustmentEngine.test.js",
+    "verify:imports": "node src/scripts/checkLocalImports.js",
+    "smoke:onboarding-routes": "node src/scripts/smokeOnboardingRoutes.js"
   },
   "keywords": [],
   "author": "",

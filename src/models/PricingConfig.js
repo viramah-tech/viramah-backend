@@ -17,7 +17,7 @@ const pricingConfigSchema = new mongoose.Schema(
     // ── Legacy fields (preserved for backward compat) ────────────────────
     registrationFee:  { type: Number, default: 1000, min: 0 },
     securityDeposit:  { type: Number, default: 15000, min: 0 },
-    gstRate:          { type: Number, default: 0.18, min: 0, max: 1 },  // Updated: 18% for V2.0
+    gstRate:          { type: Number, default: 0.12, min: 0, max: 1 },  // 12% on room rent only
     transportMonthly: { type: Number, default: 2000, min: 0 },
     messMonthly:      { type: Number, default: 2200, min: 0 },
     messLumpSum:      { type: Number, default: 19900, min: 0 },
@@ -35,8 +35,8 @@ const pricingConfigSchema = new mongoose.Schema(
     bookingAmount: {
       securityDeposit:     { type: Number, default: 15000 },
       registrationFee:     { type: Number, default: 1000 },
-      registrationGstRate: { type: Number, default: 0.18 },   // 18%
-      total:               { type: Number, default: 16180 },  // 15000 + 1000 + 180
+      registrationGstRate: { type: Number, default: 0 },      // No GST on registration fee
+      total:               { type: Number, default: 16000 },  // 15000 + 1000
     },
 
     // ── V2.0: Room Pricing (Monthly base rates per type) ─────────────────
@@ -73,7 +73,7 @@ const pricingConfigSchema = new mongoose.Schema(
     // ── V2.0: Timer Configuration ────────────────────────────────────────
     timers: {
       priceLockMinutes:      { type: Number, default: 15 },
-      bookingPaymentMinutes: { type: Number, default: 30 },
+      bookingPaymentMinutes: { type: Number, default: 4320 },  // 3 days to submit booking payment
       finalPaymentDays:      { type: Number, default: 7 },
       installmentGraceDays:  { type: Number, default: 3 },
       reminderSchedule:      { type: [Number], default: [3, 1, 0] },
@@ -82,9 +82,9 @@ const pricingConfigSchema = new mongoose.Schema(
 
     // ── V2.0: GST Configuration (Centralized) ───────────────────────────
     gst: {
-      rate:         { type: Number, default: 0.18 },  // 18% for commercial rental
-      applicableOn: { type: [String], default: ['ROOM_RENT', 'REGISTRATION_FEE', 'MESS', 'TRANSPORT'] },
-      exempt:       { type: [String], default: ['SECURITY_DEPOSIT'] },
+      rate:         { type: Number, default: 0.12 },  // 12% on room rent only
+      applicableOn: { type: [String], default: ['ROOM_RENT'] },
+      exempt:       { type: [String], default: ['SECURITY_DEPOSIT', 'REGISTRATION_FEE', 'MESS', 'TRANSPORT'] },
       invoiceFormat: {
         mustInclude: { type: [String], default: ['GSTIN', 'HSN Code', 'Taxable Value', 'CGST/SGST or IGST'] },
         hsnCode: { type: String, default: '996311' }, // Accommodation in hotels/inn

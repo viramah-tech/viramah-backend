@@ -37,11 +37,18 @@ async function processPartialPayment(bookingId, installmentNumber, paymentAmount
   );
   if (!installment) throw err(`Installment ${installmentNumber} not found`, 404);
 
-  // Validate amount
-  const remaining = installment.totalAmount - installment.amountPaid;
+  // Compute remaining against approved + pending (not rejected)
+  // This prevents two concurrent submissions from exceeding the target
+  const approvedAmount = installment.partialPayments
+    .filter(pp => pp.status === 'APPROVED')
+    .reduce((sum, pp) => sum + pp.amount, 0);
+  const pendingAmount = installment.partialPayments
+    .filter(pp => pp.status === 'PENDING')
+    .reduce((sum, pp) => sum + pp.amount, 0);
+  const remaining = installment.totalAmount - approvedAmount - pendingAmount;
 
   if (paymentAmount > remaining) {
-    throw err(`PAYMENT_EXCEEDS_REMAINING: Cannot pay more than ₹${remaining.toLocaleString()}`, 400);
+    throw err(`PAYMENT_EXCEEDS_REMAINING: Cannot submit more than ₹${remaining.toLocaleString()} (includes pending approvals)`, 400);
   }
   if (paymentAmount < 1000) {
     throw err('MINIMUM_PAYMENT: Minimum payment is ₹1,000', 400);
