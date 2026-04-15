@@ -396,24 +396,79 @@ async function selectTrackPostBooking(userId, bookingId, { trackId, addOns = {} 
 }
 
 /**
+ * Format an INR amount for display. Returns string like "₹1,24,500".
+ */
+function formatInr(amount) {
+  const abs = Math.abs(Math.round(amount));
+  const formatted = abs.toLocaleString('en-IN');
+  return amount < 0 ? `-₹${formatted}` : `₹${formatted}`;
+}
+
+/**
+ * Format a date for display. Returns string like "15 Jun 2026".
+ */
+function formatDueDate(date) {
+  if (!date) return 'TBD';
+  return new Date(date).toLocaleDateString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  });
+}
+
+/**
+ * Build display-ready fields for a phase.
+ */
+function buildPhaseDisplay(phase, totalPhases, computed) {
+  const display = {
+    phaseLabel: `Phase ${phase.phaseNumber} of ${totalPhases}`,
+    dueOnLabel: formatDueDate(phase.dueDate),
+    amountLabel: computed ? formatInr(computed.finalAmount) : '—',
+    amountDueLabel: computed ? formatInr(computed.amountDue) : '—',
+    statusLabel: phase.status === 'locked' ? 'Locked' :
+                 phase.status === 'paid'   ? 'Paid'   :
+                 phase.status === 'partial' ? 'Partially Paid' : 'Pending',
+    breakdown: computed ? computed.breakdown.map(line => ({
+      label: line.label,
+      amountLabel: formatInr(line.amount),
+      type: line.type,
+    })) : [],
+  };
+  return display;
+}
+
+/**
  * GET /api/payment/plan/me — current user's active plan with fresh breakdown per phase.
+ * Each phase now includes a `display` object with pre-formatted labels.
  */
 async function getMyPlan(userId) {
   const plan = await PaymentPlan.findOne({ userId, status: 'active' });
   if (!plan) return null;
 
+  const totalPhases = plan.phases.length;
   const phasesWithBreakdown = [];
   for (const phase of plan.phases) {
     if (phase.status === 'locked' && !phase.dueDate) {
-      phasesWithBreakdown.push({ ...phase.toObject(), computed: null });
+      const phaseObj = { ...phase.toObject(), computed: null };
+      phaseObj.display = buildPhaseDisplay(phase, totalPhases, null);
+      phasesWithBreakdown.push(phaseObj);
       continue;
     }
     const computed = await engine.computePhaseAmount(plan._id, phase.phaseNumber, userId);
-    phasesWithBreakdown.push({ ...phase.toObject(), computed });
+    const phaseObj = { ...phase.toObject(), computed };
+    phaseObj.display = buildPhaseDisplay(phase, totalPhases, computed);
+    phasesWithBreakdown.push(phaseObj);
   }
 
   const planObj = plan.toObject();
   planObj.phases = phasesWithBreakdown;
+
+  // Track label for the plan itself
+  planObj.display = {
+    trackLabel: plan.trackId === 'full' ? 'Full Tenure Payment' :
+                plan.trackId === 'twopart' ? 'Two-Part Payment' :
+                plan.trackId === 'booking' ? 'Booking Plan' : plan.trackId,
+    trackDiscountLabel: plan.trackId === 'full' ? '40% off rent' :
+                        plan.trackId === 'twopart' ? '25% off rent' : null,
+  };
 
   // Also include booking amount if this is a Track 3 plan awaiting upgrade
   if (plan.trackId === 'booking' && !plan.chosenTrackId) {

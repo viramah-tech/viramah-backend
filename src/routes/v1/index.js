@@ -17,7 +17,9 @@
 const express = require('express');
 
 // Resident-facing
-const bookingRoutes = require('./bookings');
+const bookingRoutes  = require('./bookings');
+const receiptRoutes  = require('./receipts');
+const profileRoutes  = require('./profile');
 
 // Admin-facing
 const verificationRoutes  = require('./admin/verifications');
@@ -30,6 +32,8 @@ const router = express.Router();
 
 // ── Resident Routes ──────────────────────────────────────────────────────────
 router.use('/bookings', bookingRoutes);
+router.use('/receipts', receiptRoutes);
+router.use('/profile', profileRoutes);
 
 // ── Admin Routes ─────────────────────────────────────────────────────────────
 router.use('/admin/verifications', verificationRoutes);

@@ -4,6 +4,7 @@ const { validate } = require('../../middleware/validate');
 const { protect } = require('../../middleware/auth');
 const { authorize } = require('../../middleware/roleAuth');
 const requireTermsAccepted = require('../../middleware/requireTermsAccepted');
+const { requireStep } = require('../../middleware/stepGuard');
 const { validateIdNumber } = require('../../utils/idValidators');
 const {
   getStatus,
@@ -25,6 +26,7 @@ router.get('/status', getStatus);
 // PATCH /api/public/onboarding/step-1  (KYC documents)
 router.patch(
   '/step-1',
+  requireStep(1),
   [
     body('fullName').optional().trim().notEmpty().withMessage('Full name is required'),
     body('dateOfBirth').optional().trim().notEmpty()
@@ -50,6 +52,7 @@ router.patch(
 // PATCH /api/public/onboarding/step-2  (Emergency contact)
 router.patch(
   '/step-2',
+  requireStep(2),
   [
     body('name').optional().trim().notEmpty().withMessage('Contact name is required'),
     body('phone').optional().trim().notEmpty()
@@ -75,12 +78,14 @@ router.patch(
 // PATCH /api/public/onboarding/step-3  (Room selection)
 router.patch(
   '/step-3',
+  requireStep(3),
   saveStep3
 );
 
 // PATCH /api/public/onboarding/step-4  (Personal Details)
 router.patch(
   '/step-4',
+  requireStep(4),
   [
     body('gender').trim().notEmpty().withMessage('Gender is required'),
     body('address').trim().notEmpty().withMessage('Address is required'),
@@ -90,7 +95,7 @@ router.patch(
 );
 
 // POST /api/public/onboarding/confirm
-router.post('/confirm', confirmOnboarding);
+router.post('/confirm', requireStep(4), confirmOnboarding);
 
 module.exports = router;
 

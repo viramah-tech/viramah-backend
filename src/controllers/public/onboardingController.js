@@ -3,17 +3,36 @@ const RoomType = require('../../models/RoomType');
 const RoomHold = require('../../models/RoomHold');
 const { success, error } = require('../../utils/apiResponse');
 const { emitToAdmins, emitToUser } = require('../../services/socket-service');
+const { nextAllowedStep, highestCompletedStep, deriveCompletedSteps } = require('../../services/onboarding-state-service');
 
 /**
  * GET /api/public/onboarding/status
- * Get current onboarding progress for the logged-in resident
+ * Get current onboarding progress for the logged-in resident.
+ *
+ * Returns both the raw data (for form pre-fill) AND display-ready navigation
+ * fields so the client never derives step state.
  */
 const getStatus = async (req, res, next) => {
   try {
     const user = await User.findById(req.user._id).populate('roomTypeId', 'name displayName basePrice discountedPrice');
     if (!user) return error(res, 'User not found', 404);
 
+    const allowed = nextAllowedStep(user);
+    const completedSteps = deriveCompletedSteps(user);
+    const highest = highestCompletedStep(user);
+
     return success(res, {
+      // ── Navigation / step-gating (NEW — server-authoritative) ─────────
+      currentStep: allowed ?? 'completed',
+      nextAllowedStep: allowed,
+      completedSteps,
+      canProceed: allowed !== null,
+      display: {
+        progressPercent: Math.round((highest / 4) * 100),
+        stepLabel: allowed === null ? 'Completed' : `Step ${allowed} of 4`,
+      },
+
+      // ── Existing fields (backward compat for form pre-fill) ───────────
       onboardingStatus: user.onboardingStatus,
       name: user.name,
       dateOfBirth: user.dateOfBirth,
@@ -23,7 +42,7 @@ const getStatus = async (req, res, next) => {
       emergencyContact: user.emergencyContact,
       parentDocuments: user.parentDocuments,
       roomTypeId: user.roomTypeId ? user.roomTypeId._id : null,
-      selectedRoomType: user.roomTypeId ? user.roomTypeId.name : '', // for backward compat in frontend until updated
+      selectedRoomType: user.roomTypeId ? user.roomTypeId.name : '',
       roomNumber: user.roomNumber,
       messPackage: user.messPackage,
       selectedAddOns: user.selectedAddOns || { transport: false, mess: false, messLumpSum: false },
@@ -35,8 +54,9 @@ const getStatus = async (req, res, next) => {
     }, 'Onboarding status fetched');
   } catch (err) {
     next(err);
-  }
+  };
 };
+
 
 /**
  * PATCH /api/public/onboarding/step-1

@@ -17,7 +17,9 @@
     "migrate:v3:payment:commit": "node src/scripts/migratePaymentSchema.js --commit",
     "test": "node tests/adjustmentEngine.test.js",
     "verify:imports": "node src/scripts/checkLocalImports.js",
-    "smoke:onboarding-routes": "node src/scripts/smokeOnboardingRoutes.js"
+    "smoke:onboarding-routes": "node src/scripts/smokeOnboardingRoutes.js",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix"
   },
   "keywords": [],
   "author": "",
@@ -48,5 +50,12 @@
     "twilio": "^5.13.1",
     "ulid": "^2.4.0",
     "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "eslint": "^9.39.4",
+    "eslint-plugin-n": "^17.24.0",
+    "eslint-plugin-security": "^4.0.0",
+    "globals": "^17.5.0"
   }
 }

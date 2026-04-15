@@ -200,4 +200,129 @@ async function generateReceiptPdf({ receiptType, user, payment, roomTypeName }) 
   });
 }
 
-module.exports = { generateReceiptPdf };
+/**
+ * Generate a resident profile summary PDF as a Buffer.
+ *
+ * @param {object} user - Mongoose User document (or lean object)
+ * @returns {Promise<Buffer>} PDF buffer
+ */
+async function generateProfilePdf(user) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const chunks = [];
+
+      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      const pageWidth = doc.page.width - 100;
+
+      // ── Header ────────────────────────────────────────────────────────
+      doc.rect(0, 0, doc.page.width, 80).fill(BRAND_GREEN);
+      doc.fontSize(22).fillColor('#FFFFFF').text('Viramah Stay', 50, 25, { align: 'center' });
+      doc.fontSize(8).fillColor(BRAND_GOLD).text('RESIDENT PROFILE', 50, 52, { align: 'center', characterSpacing: 3 });
+
+      // Gold line
+      doc.rect(0, 80, doc.page.width, 3).fill(BRAND_GOLD);
+
+      // ── Title ─────────────────────────────────────────────────────────
+      doc.moveDown(2);
+      doc.fontSize(16).fillColor(BRAND_GREEN).text('RESIDENT PROFILE', { align: 'center' });
+      doc.moveDown(0.5);
+
+      const dateStr = new Date().toLocaleDateString('en-IN', {
+        day: '2-digit', month: 'long', year: 'numeric',
+      });
+      doc.fontSize(10).fillColor('#666666').text(`Generated: ${dateStr}`, { align: 'center' });
+      doc.moveDown(1.5);
+
+      // ── Personal Details ──────────────────────────────────────────────
+      doc.fontSize(10).fillColor(BRAND_GOLD).text('PERSONAL DETAILS', 50);
+      doc.moveDown(0.3);
+      doc.rect(50, doc.y, pageWidth, 1).fill(BRAND_GOLD);
+      doc.moveDown(0.5);
+
+      const details = [
+        ['Name', user.name || 'N/A'],
+        ['User ID', user.userId || 'N/A'],
+        ['Email', user.email || 'N/A'],
+        ['Phone', user.phone || 'N/A'],
+        ['Gender', user.gender || 'N/A'],
+        ['Date of Birth', user.dateOfBirth ? new Date(user.dateOfBirth).toLocaleDateString('en-IN') : 'N/A'],
+        ['Address', user.address || 'N/A'],
+        ['Onboarding Status', (user.onboardingStatus || 'pending').toUpperCase()],
+      ];
+
+      details.forEach(([label, value]) => {
+        const yPos = doc.y;
+        doc.fontSize(10).fillColor('#666666').text(label, 50, yPos, { width: 140 });
+        doc.fontSize(10).fillColor('#1a1a1a').text(`:  ${value}`, 190, yPos);
+        doc.moveDown(0.2);
+      });
+
+      doc.moveDown(1.5);
+
+      // ── Emergency Contact ─────────────────────────────────────────────
+      if (user.emergencyContact?.name) {
+        doc.fontSize(10).fillColor(BRAND_GOLD).text('EMERGENCY CONTACT', 50);
+        doc.moveDown(0.3);
+        doc.rect(50, doc.y, pageWidth, 1).fill(BRAND_GOLD);
+        doc.moveDown(0.5);
+
+        const ec = [
+          ['Name', user.emergencyContact.name || 'N/A'],
+          ['Phone', user.emergencyContact.phone || 'N/A'],
+          ['Relation', user.emergencyContact.relation || 'N/A'],
+        ];
+
+        ec.forEach(([label, value]) => {
+          const yPos = doc.y;
+          doc.fontSize(10).fillColor('#666666').text(label, 50, yPos, { width: 140 });
+          doc.fontSize(10).fillColor('#1a1a1a').text(`:  ${value}`, 190, yPos);
+          doc.moveDown(0.2);
+        });
+
+        doc.moveDown(1.5);
+      }
+
+      // ── Accommodation ─────────────────────────────────────────────────
+      doc.fontSize(10).fillColor(BRAND_GOLD).text('ACCOMMODATION', 50);
+      doc.moveDown(0.3);
+      doc.rect(50, doc.y, pageWidth, 1).fill(BRAND_GOLD);
+      doc.moveDown(0.5);
+
+      const accomLines = [
+        ['Room Number', user.roomNumber || 'Not Assigned'],
+        ['Payment Status', (user.paymentStatus || 'unpaid').toUpperCase()],
+        ['Move-In Status', (user.moveInStatus || 'not_started').replace(/_/g, ' ').toUpperCase()],
+      ];
+
+      accomLines.forEach(([label, value]) => {
+        const yPos = doc.y;
+        doc.fontSize(10).fillColor('#666666').text(label, 50, yPos, { width: 140 });
+        doc.fontSize(10).fillColor('#1a1a1a').text(`:  ${value}`, 190, yPos);
+        doc.moveDown(0.2);
+      });
+
+      doc.moveDown(2);
+
+      // ── Footer ────────────────────────────────────────────────────────
+      doc.rect(50, doc.y, pageWidth, 1).fill('#ddd');
+      doc.moveDown(0.5);
+      doc.fontSize(9).fillColor('#888888').text(
+        'This is a computer-generated document and does not require a signature.',
+        50, doc.y, { align: 'center' }
+      );
+      doc.moveDown(0.3);
+      doc.text('Viramah Stay — Krishna Valley, Vrindavan, UP, India', { align: 'center' });
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+module.exports = { generateReceiptPdf, generateProfilePdf };
+
