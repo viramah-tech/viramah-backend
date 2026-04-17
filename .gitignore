@@ -1,18 +1,2 @@
-node_modules
+node_modules/
 .env
-dist
-coverage
-*.log
-*.pem
-
-# Optional: Ignore IDE-specific files
-.vscode/
-.idea/
-
-# Optional: Ignore OS-specific files
-.DS_Store
-Thumbs.db
-# Optional: Ignore build artifacts
-build/
-# Optional: Ignore test artifacts
-test-results/
