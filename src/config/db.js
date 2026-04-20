@@ -7,6 +7,10 @@ const connectDB = async () => {
   const options = {
     dbName: process.env.DB_NAME || "viramah",
   };
+  if (process.env.NODE_ENV !== "production") {
+    // In local development, avoid 'unable to get local issuer certificate' when connecting to DocumentDB/Atlas
+    options.tlsAllowInvalidCertificates = true;
+  }
   if (fs.existsSync(certPath) && process.env.NODE_ENV === "production") {
     options.tls = true;
     options.tlsCAFile = certPath;
