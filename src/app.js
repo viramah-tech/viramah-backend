@@ -7,6 +7,7 @@ const { AppError } = require("./utils/errors");
 
 const app = express();
 
+app.set("trust proxy", 1);
 app.use(helmet());
 
 const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000").split(",").map(o => o.trim());
