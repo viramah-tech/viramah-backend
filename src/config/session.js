@@ -19,11 +19,13 @@ const createSessionMiddleware = () => {
       httpOnly: true,
       secure: isProduction,
       maxAge: 24 * 60 * 60 * 1000,
-      // Cross-domain: admin/website on Amplify need to send cookies to API on EC2.
-      // sameSite "none" + secure is required for cross-origin cookie delivery.
-      // domain ".viramahstay.com" lets *.viramahstay.com share the cookie.
+      // Cross-site: admin on amplifyapp.com needs to send cookies to api.viramahstay.com.
+      // sameSite "none" + secure is required for cross-site cookie delivery.
+      // Do NOT set domain — let it default to the API host. Setting domain to
+      // .viramahstay.com breaks when the frontend is on a different registrable
+      // domain (amplifyapp.com). Once you add a custom domain (admin.viramahstay.com),
+      // you can optionally add: domain: ".viramahstay.com"
       sameSite: isProduction ? "none" : "lax",
-      domain: isProduction ? ".viramahstay.com" : "localhost",
       path: "/",
     },
   });
