@@ -1,6 +1,9 @@
 const session = require("express-session");
 const MongoStore = require("connect-mongo");
 
+const fs = require("fs");
+const path = require("path");
+
 const createSessionMiddleware = () => {
   // Bulletproof production check: if the origins include the live domains, force production settings
   // regardless of what NODE_ENV says. This prevents failure if NODE_ENV=development is left in EC2 env.
@@ -8,6 +11,16 @@ const createSessionMiddleware = () => {
     process.env.NODE_ENV === "production" || 
     (process.env.CORS_ORIGIN || "").includes("viramahstay.com");
   
+  // Connect-Mongo requires the same TLS certificate logic as Mongoose to connect to AWS DocumentDB in production.
+  const certPath = path.join(__dirname, "../../global-bundle.pem");
+  const mongoOptions = {};
+  if (!isProduction) {
+    mongoOptions.tlsAllowInvalidCertificates = true;
+  } else if (fs.existsSync(certPath)) {
+    mongoOptions.tls = true;
+    mongoOptions.tlsCAFile = certPath;
+  }
+
   return session({
     secret: process.env.SESSION_SECRET || "viramah-dev-session-secret-do-not-use-in-prod",
     resave: false,
@@ -18,7 +31,7 @@ const createSessionMiddleware = () => {
       dbName: process.env.DB_NAME || "viramah",
       collectionName: "sessions",
       ttl: 24 * 60 * 60,
-      mongoOptions: !isProduction ? { tlsAllowInvalidCertificates: true } : {},
+      mongoOptions: mongoOptions,
     }),
     cookie: {
       httpOnly: true,
