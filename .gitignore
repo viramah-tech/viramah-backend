@@ -1,2 +1,15 @@
 node_modules/
 .env
+.env.*
+*.pem
+logs/
+*.log
+
+# Scratch / debug utilities (not needed in production)
+approve_script.js
+check_admins.js
+check_user_res.js
+check_users.js
+find_admin_id.js
+scratchDB.js
+scratchDB2.js

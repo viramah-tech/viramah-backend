@@ -2,8 +2,10 @@ const session = require("express-session");
 const MongoStore = require("connect-mongo");
 
 const createSessionMiddleware = () => {
+  const isProduction = process.env.NODE_ENV === "production";
+  
   return session({
-    secret: process.env.SESSION_SECRET,
+    secret: process.env.SESSION_SECRET || "viramah-dev-session-secret-do-not-use-in-prod",
     resave: false,
     saveUninitialized: false,
     store: MongoStore.create({
@@ -11,15 +13,17 @@ const createSessionMiddleware = () => {
       dbName: process.env.DB_NAME || "viramah",
       collectionName: "sessions",
       ttl: 24 * 60 * 60,
-      mongoOptions: process.env.NODE_ENV !== "production" ? { tlsAllowInvalidCertificates: true } : {},
+      mongoOptions: !isProduction ? { tlsAllowInvalidCertificates: true } : {},
     }),
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: isProduction,
       maxAge: 24 * 60 * 60 * 1000,
-      sameSite: "lax",
-      // Allow cookie to be shared across ports in development
-      domain: process.env.NODE_ENV === "production" ? undefined : "localhost",
+      // Cross-domain: admin/website on Amplify need to send cookies to API on EC2.
+      // sameSite "none" + secure is required for cross-origin cookie delivery.
+      // domain ".viramahstay.com" lets *.viramahstay.com share the cookie.
+      sameSite: isProduction ? "none" : "lax",
+      domain: isProduction ? ".viramahstay.com" : "localhost",
       path: "/",
     },
   });
