@@ -2,7 +2,9 @@ const session = require("express-session");
 const MongoStore = require("connect-mongo");
 
 const createSessionMiddleware = () => {
-  const isProduction = process.env.NODE_ENV === "production";
+  // Default to production-like settings unless explicitly in development mode.
+  // This fails safe in case the NODE_ENV variable goes missing on EC2.
+  const isProduction = process.env.NODE_ENV !== "development";
   
   return session({
     secret: process.env.SESSION_SECRET || "viramah-dev-session-secret-do-not-use-in-prod",
