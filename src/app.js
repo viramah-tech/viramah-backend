@@ -117,7 +117,7 @@ app.use((err, req, res, next) => {
   }
 
   const errorMessage = process.env.NODE_ENV === "production" 
-    ? "Internal Server Error" 
+    ? "Internal Server Error (" + (err?.message || "Unknown error") + ")"
     : (err?.message || "Internal Server Error");
   
   console.error("[ERROR]", {
@@ -130,7 +130,11 @@ app.use((err, req, res, next) => {
   
   res.status(500).json({
     success: false,
-    error: { message: errorMessage, code: "INTERNAL_ERROR" },
+    error: { 
+      message: errorMessage, 
+      code: "INTERNAL_ERROR",
+      stack: process.env.NODE_ENV === "production" ? err?.stack : undefined 
+    },
   });
 });
 
