@@ -8,6 +8,7 @@ const createSessionMiddleware = () => {
     secret: process.env.SESSION_SECRET || "viramah-dev-session-secret-do-not-use-in-prod",
     resave: false,
     saveUninitialized: false,
+    proxy: isProduction, // Trust X-Forwarded-Proto from nginx/ALB for secure cookies
     store: MongoStore.create({
       mongoUrl: process.env.MONGODB_URI,
       dbName: process.env.DB_NAME || "viramah",
