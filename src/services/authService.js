@@ -137,7 +137,7 @@ const maskEmail = (email) => {
 const forgotPasswordSendOtp = async (email) => {
   const normalizedEmail = email.toLowerCase().trim();
   const user = await User.findOne({ "basicInfo.email": normalizedEmail });
-  if (!user) return { maskedEmail: maskEmail(normalizedEmail) }; // Don't reveal if email exists
+  if (!user) throw new NotFoundError("no account found with this email id signup first");
 
   const otp = String(Math.floor(100000 + Math.random() * 900000));
   const otpHash = await bcrypt.hash(otp, SALT_ROUNDS);
