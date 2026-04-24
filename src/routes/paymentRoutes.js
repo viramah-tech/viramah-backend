@@ -15,7 +15,7 @@ const bookingSchema = Joi.object({
 });
 
 const finalSchema = Joi.object({
-  category: Joi.string().valid("room_rent", "mess", "transport").required(),
+  category: Joi.string().valid("room_rent", "mess", "transport", "security_deposit").required(),
   method: Joi.string().valid("upi", "bank_transfer", "cash").required(),
   transactionId: Joi.string().min(3).max(80).required(),
   proofUrl: Joi.string().uri().required(),
@@ -45,7 +45,7 @@ router.post(
 router.post(
   "/final",
   auth,
-  stepGate("final_payment"),
+  stepGate("final_payment", "completed"),
   validate(finalSchema),
   async (req, res, next) => {
     try {
@@ -110,6 +110,20 @@ router.post(
     try {
       const result = await paymentService.requestBookingCancellation(req.user, req.validatedBody);
       res.status(201).json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/upgrade-plan",
+  auth,
+  stepGate("completed", "final_payment"),
+  async (req, res, next) => {
+    try {
+      const result = await paymentService.upgradePaymentPlan(req.user);
+      res.status(200).json({ success: true, data: result });
     } catch (err) {
       next(err);
     }

@@ -44,6 +44,7 @@ const roomSchema = Joi.object({
   roomTypeId: Joi.string().hex().length(24).required(),
   includeMess: Joi.boolean().default(false),
   includeTransport: Joi.boolean().default(false),
+  paymentPlan: Joi.string().valid("full", "half").required(),
 });
 
 router.put(

@@ -114,10 +114,24 @@ const saveGuardianDetails = async (user, data, files = {}) => {
   return { nextStep: "room_selection" };
 };
 
-const computePaymentSummary = (roomType, pricing, includeMess, includeTransport) => {
+const computePaymentSummary = (roomType, pricing, includeMess, includeTransport, paymentPlan) => {
   const tenure = pricing.tenureMonths;
   const monthlyRoomPrice = roomType.basePrice; // Initializing at Rack Rate
-  const roomRent = monthlyRoomPrice * tenure;
+  const rawRoomRent = monthlyRoomPrice * tenure;
+
+  // Apply discount based on selected payment plan
+  const fullDiscountPct = pricing.defaultFullPaymentDiscountPct ?? 40;
+  const halfDiscountPct = pricing.defaultHalfPaymentDiscountPct ?? 25;
+
+  let discountPct = 0;
+  if (paymentPlan === "full") {
+    discountPct = fullDiscountPct;
+  } else if (paymentPlan === "half") {
+    discountPct = halfDiscountPct;
+  }
+
+  const discountValue = Math.round(rawRoomRent * (discountPct / 100));
+  const discountedRoomRent = rawRoomRent - discountValue;
 
   let messFee = 0;
   if (includeMess) {
@@ -133,7 +147,7 @@ const computePaymentSummary = (roomType, pricing, includeMess, includeTransport)
   const registrationFee = pricing.registrationFee;
   const securityDeposit = pricing.securityDeposit;
   const grandTotalValue =
-    registrationFee + securityDeposit + roomRent + messFee + transportFee;
+    registrationFee + securityDeposit + discountedRoomRent + messFee + transportFee;
 
   const entry = (total) => ({ total, paid: 0, remaining: total });
 
@@ -141,13 +155,13 @@ const computePaymentSummary = (roomType, pricing, includeMess, includeTransport)
     registrationFee: entry(registrationFee),
     securityDeposit: entry(securityDeposit),
     roomRent: {
-      total: roomRent,
+      total: discountedRoomRent,
       paid: 0,
-      remaining: roomRent,
-      fullPaymentDiscountPct: pricing.defaultFullPaymentDiscountPct ?? 40,
-      halfPaymentDiscountPct: pricing.defaultHalfPaymentDiscountPct ?? 25,
-      appliedDiscountValue: 0,
-      selectedPlan: "pending",
+      remaining: discountedRoomRent,
+      fullPaymentDiscountPct: fullDiscountPct,
+      halfPaymentDiscountPct: halfDiscountPct,
+      appliedDiscountValue: discountValue,
+      selectedPlan: paymentPlan,
     },
     messFee: entry(messFee),
     transportFee: entry(transportFee),
@@ -172,7 +186,8 @@ const saveRoomSelection = async (user, data) => {
     roomType,
     pricing,
     user.roomDetails.includeMess,
-    user.roomDetails.includeTransport
+    user.roomDetails.includeTransport,
+    data.paymentPlan
   );
 
   user.onboarding.currentStep = "review";

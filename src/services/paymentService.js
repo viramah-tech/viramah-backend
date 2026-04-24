@@ -129,13 +129,7 @@ const validateTransactionId = (transactionId) => {
   }
 };
 
-const hasPending = (user) => {
-  const pending = user.paymentDetails?.some((p) => p.status === "pending");
-  if (pending) {
-    throw new ConflictError("A payment is already pending admin review. Please wait for approval or rejection.");
-  }
-  return false;
-};
+// hasPending function removed to allow multiple simultaneous payments
 
 const getEffectiveDeadline = (paymentDeadline) => {
   if (!paymentDeadline) return null;
@@ -166,8 +160,6 @@ const submitBookingPayment = async (user, data) => {
   if (user.onboarding.currentStep !== "booking_payment") {
     throw new ValidationError("User is not at the booking payment step");
   }
-  
-  hasPending(user);
 
   validatePaymentMethod(data.method);
   validateTransactionId(data.transactionId);
@@ -221,11 +213,9 @@ const submitBookingPayment = async (user, data) => {
 };
 
 const submitFinalPayment = async (user, data) => {
-  if (user.onboarding.currentStep !== "final_payment") {
-    throw new ValidationError("User is not at the final payment step");
+  if (user.onboarding.currentStep !== "final_payment" && user.onboarding.currentStep !== "completed") {
+    throw new ValidationError("User is not at the final payment step or completed step");
   }
-  
-  hasPending(user);
 
   validatePaymentMethod(data.method);
   validateTransactionId(data.transactionId);
@@ -242,26 +232,7 @@ const submitFinalPayment = async (user, data) => {
   let categoryRemaining = user.paymentSummary[summaryKey].remaining;
 
   if (data.category === "room_rent" && user.paymentSummary.roomRent.selectedPlan === "pending") {
-      if (!data.planType || !["full", "half"].includes(data.planType)) {
-          throw new ValidationError("Initial Room Rent payment requires an explicit plan selection ('full' or 'half').");
-      }
-      user.paymentSummary.roomRent.selectedPlan = data.planType;
-      
-      const totalPricing = user.paymentSummary.roomRent.total;
-      let calculatedDiscountValue = 0;
-      
-      if (data.planType === "full") {
-          calculatedDiscountValue = totalPricing * (user.paymentSummary.roomRent.fullPaymentDiscountPct / 100);
-      } else if (data.planType === "half") {
-          calculatedDiscountValue = totalPricing * (user.paymentSummary.roomRent.halfPaymentDiscountPct / 100);
-      }
-      
-      // Subtrack discount from ledger upfront
-      user.paymentSummary.roomRent.appliedDiscountValue = calculatedDiscountValue;
-      user.paymentSummary.roomRent.remaining -= calculatedDiscountValue;
-      user.paymentSummary.grandTotal.remaining -= calculatedDiscountValue;
-      
-      categoryRemaining = user.paymentSummary.roomRent.remaining;
+    throw new ValidationError("Payment plan must be selected during room selection. Please go back and select your room again.");
   }
 
   if (categoryRemaining <= 0) {
@@ -451,6 +422,57 @@ const requestBookingCancellation = async (user, data = {}) => {
   };
 };
 
+const upgradePaymentPlan = async (user) => {
+  if (user.paymentSummary.roomRent.selectedPlan !== "half") {
+    throw new ValidationError("Only users on the part payment plan can upgrade to the full plan.");
+  }
+  
+  if (user.paymentSummary.isFullyPaid) {
+    throw new ConflictError("Payments are already fully completed.");
+  }
+
+  const currentTotal = user.paymentSummary.roomRent.total;
+  const currentAppliedDiscount = user.paymentSummary.roomRent.appliedDiscountValue || 0;
+  
+  // Back-calculate the raw rack rate room rent before the half discount
+  const rawRoomRent = currentTotal + currentAppliedDiscount;
+
+  // Apply the new full discount
+  const fullDiscountPct = user.paymentSummary.roomRent.fullPaymentDiscountPct || 40;
+  const newDiscountValue = Math.round(rawRoomRent * (fullDiscountPct / 100));
+  const newTotal = rawRoomRent - newDiscountValue;
+  
+  const discountDifference = newDiscountValue - currentAppliedDiscount;
+
+  // Update roomRent ledger
+  user.paymentSummary.roomRent.selectedPlan = "full";
+  user.paymentSummary.roomRent.appliedDiscountValue = newDiscountValue;
+  user.paymentSummary.roomRent.total = newTotal;
+  user.paymentSummary.roomRent.remaining -= discountDifference;
+  
+  // Update grandTotal ledger
+  user.paymentSummary.grandTotal.total -= discountDifference;
+  user.paymentSummary.grandTotal.remaining -= discountDifference;
+
+  // Prevent negative balances if there's any odd case
+  user.paymentSummary.roomRent.remaining = Math.max(0, user.paymentSummary.roomRent.remaining);
+  user.paymentSummary.grandTotal.remaining = Math.max(0, user.paymentSummary.grandTotal.remaining);
+
+  await user.save();
+
+  logPaymentAudit("PLAN_UPGRADED", user.basicInfo.userId, "upgrade", 0, {
+    oldDiscount: currentAppliedDiscount,
+    newDiscount: newDiscountValue
+  });
+
+  return { 
+    success: true, 
+    newTotal, 
+    newRemaining: user.paymentSummary.roomRent.remaining,
+    discountValue: newDiscountValue
+  };
+};
+
 const getPaymentStatus = async (user) => {
   const bookingFinancials = getBookingFinancials(user);
   return {
@@ -475,4 +497,5 @@ module.exports = {
   requestBookingRefund,
   requestBookingCancellation,
   getPaymentStatus,
+  upgradePaymentPlan,
 };
