@@ -19,7 +19,7 @@ const sanitize = (user) => {
   return obj;
 };
 
-const register = async ({ name, email, phone, password }) => {
+const register = async ({ name, email, phone, password, salesAgent }) => {
   const normalizedEmail = email.toLowerCase().trim();
   const existing = await User.findOne({ "basicInfo.email": normalizedEmail });
   if (existing) {
@@ -35,6 +35,7 @@ const register = async ({ name, email, phone, password }) => {
       fullName: name || "",
       email: normalizedEmail,
       phone: phone || "",
+      salesAgent: salesAgent || "",
     },
     auth: { passwordHash },
     onboarding: { currentStep: "verification", startedAt: new Date() }, // User verifies email first
@@ -73,8 +74,8 @@ const login = async ({ email, password }) => {
     throw new AuthError("Invalid email or password");
   }
   
-  if (user.accountStatus === "blocked") {
-    throw new AuthError("You are blocked by the admin. Contact support@viramahstay.com for the solutions");
+  if (user.accountStatus !== "active") {
+    throw new AuthError("Contact support@viramahstay.com");
   }
 
   if (user.auth?.isBlocked) {

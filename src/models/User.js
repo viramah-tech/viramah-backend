@@ -25,6 +25,7 @@ const basicInfoSchema = new Schema(
     gender: { type: String, enum: ["male", "female", "other", null], default: null },
     dateOfBirth: Date,
     address: String, // Store as plain string for flexibility
+    salesAgent: { type: String, default: "" }, // Track who made the account
   },
   { _id: false }
 );

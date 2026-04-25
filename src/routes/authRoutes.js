@@ -11,6 +11,7 @@ const registerSchema = Joi.object({
   email: Joi.string().email().required(),
   phone: Joi.string().pattern(/^[0-9+\- ]{7,15}$/).optional(),
   password: Joi.string().min(8).max(128).required(),
+  salesAgent: Joi.string().max(100).optional().allow(""),
 });
 
 const loginSchema = Joi.object({
