@@ -74,7 +74,7 @@ const login = async ({ email, password }) => {
     throw new AuthError("Invalid email or password");
   }
   
-  if (user.accountStatus !== "active") {
+  if (user.accountStatus === "suspended" || user.accountStatus === "blocked") {
     throw new AuthError("Contact support@viramahstay.com");
   }
 
