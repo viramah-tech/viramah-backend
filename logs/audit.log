@@ -96,3 +96,7 @@
 {"timestamp":"2026-04-24T17:53:01.618Z","eventType":"PAYMENT_SUBMITTED","data":{"userId":"RES000039","paymentId":"45ee444c-5b51-43aa-8921-8882d3024a8b","amount":22000,"timestamp":"2026-04-24T17:53:01.618Z","method":"upi","type":"transport"}}
 {"timestamp":"2026-04-24T18:00:01.654Z","eventType":"PAYMENT_PLAN_UPGRADED","data":{"userId":"RES000039","paymentId":"upgrade","amount":0,"timestamp":"2026-04-24T18:00:01.654Z","oldDiscount":57247,"newDiscount":91595}}
 {"timestamp":"2026-04-24T18:03:11.441Z","eventType":"PAYMENT_SUBMITTED","data":{"userId":"RES000039","paymentId":"d87d4e7f-5583-4994-af63-41406ec5cb40","amount":34348,"timestamp":"2026-04-24T18:03:11.441Z","method":"upi","type":"room_rent"}}
+{"timestamp":"2026-04-27T16:45:30.343Z","eventType":"ADMIN_ACTION","data":{"action":"DELETE_USER","adminId":"ADMIN","targetUserId":"RES000039","timestamp":"2026-04-27T16:45:30.343Z","deletedAt":"2026-04-27T16:45:30.343Z"}}
+{"timestamp":"2026-04-27T17:20:05.233Z","eventType":"ADMIN_ACTION","data":{"action":"REJECT_DOCUMENTS","adminId":"ADMIN","targetUserId":"RES000036","timestamp":"2026-04-27T17:20:05.233Z","reason":"n a"}}
+{"timestamp":"2026-04-27T17:24:45.582Z","eventType":"ADMIN_ACTION","data":{"action":"REJECT_DOCUMENTS","adminId":"ADMIN","targetUserId":"RES000036","timestamp":"2026-04-27T17:24:45.582Z","reason":"n n na"}}
+{"timestamp":"2026-04-27T17:27:27.434Z","eventType":"ADMIN_ACTION","data":{"action":"VERIFY_DOCUMENTS","adminId":"ADMIN","targetUserId":"RES000036","timestamp":"2026-04-27T17:27:27.434Z"}}

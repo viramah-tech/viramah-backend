@@ -44,8 +44,8 @@ const getUserById = async (userId) => {
   return user;
 };
 
-const updateRoomRentDiscounts = async (userId, fullPaymentDiscountPct, halfPaymentDiscountPct) => {
-  const user = await User.findOne({ "basicInfo.userId": userId });
+const updateRoomRentDiscounts = async (userId, fullPaymentDiscountPct, halfPaymentDiscountPct, customRackRate) => {
+  const user = await User.findOne({ "basicInfo.userId": userId }).populate("roomDetails.roomType");
   if (!user) throw new NotFoundError("User not found");
 
   if (typeof fullPaymentDiscountPct === "number") {
@@ -53,6 +53,42 @@ const updateRoomRentDiscounts = async (userId, fullPaymentDiscountPct, halfPayme
   }
   if (typeof halfPaymentDiscountPct === "number") {
     user.paymentSummary.roomRent.halfPaymentDiscountPct = halfPaymentDiscountPct;
+  }
+  if (typeof customRackRate === "number") {
+    user.paymentSummary.roomRent.customRackRate = customRackRate;
+  }
+
+  // Recalculate if user has already done room selection and selected a plan
+  const plan = user.paymentSummary?.roomRent?.selectedPlan;
+  if (plan === "full" || plan === "half") {
+    const pricing = await PricingConfig.findOne();
+    const tenure = pricing?.tenureMonths || 11;
+    const roomPrice = user.roomDetails?.roomType?.basePrice || 0;
+    
+    // Use customRackRate if provided, otherwise fallback to standard calculation
+    const rawRoomRent = typeof user.paymentSummary.roomRent.customRackRate === "number" 
+      ? user.paymentSummary.roomRent.customRackRate 
+      : (roomPrice * tenure);
+
+    const discountPct = plan === "full" ? user.paymentSummary.roomRent.fullPaymentDiscountPct : user.paymentSummary.roomRent.halfPaymentDiscountPct;
+    
+    const newDiscountValue = Math.round(rawRoomRent * (discountPct / 100));
+    const oldDiscountValue = user.paymentSummary.roomRent.appliedDiscountValue || 0;
+    const discountDifference = newDiscountValue - oldDiscountValue;
+
+    user.paymentSummary.roomRent.appliedDiscountValue = newDiscountValue;
+    user.paymentSummary.roomRent.total -= discountDifference;
+    user.paymentSummary.roomRent.remaining -= discountDifference;
+    
+    user.paymentSummary.grandTotal.total -= discountDifference;
+    user.paymentSummary.grandTotal.remaining -= discountDifference;
+
+    // Prevent negative balances
+    user.paymentSummary.roomRent.remaining = Math.max(0, user.paymentSummary.roomRent.remaining);
+    user.paymentSummary.grandTotal.remaining = Math.max(0, user.paymentSummary.grandTotal.remaining);
+
+    // If fully paid state changes
+    user.paymentSummary.isFullyPaid = user.paymentSummary.grandTotal.remaining <= 0;
   }
 
   await user.save();
@@ -340,9 +376,28 @@ const verifyUserDocuments = async (userId, adminUserId) => {
   const user = await User.findOne({ "basicInfo.userId": userId });
   if (!user) throw new NotFoundError("User not found");
   user.verification.documentVerified = true;
+  user.verification.documentVerificationStatus = "approved";
+  user.verification.documentRejectionReason = null;
   await user.save();
   logAdminAction("VERIFY_DOCUMENTS", adminUserId, userId, {});
-  return { userId, documentVerified: true };
+  return { userId, documentVerified: true, status: "approved" };
+};
+
+const rejectUserDocuments = async (userId, adminUserId, reason) => {
+  if (!reason || typeof reason !== "string" || reason.trim().length === 0) {
+    throw new ValidationError("Rejection reason is required");
+  }
+
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+
+  user.verification.documentVerified = false;
+  user.verification.documentVerificationStatus = "rejected";
+  user.verification.documentRejectionReason = reason;
+  
+  await user.save();
+  logAdminAction("REJECT_DOCUMENTS", adminUserId, userId, { reason });
+  return { userId, documentVerified: false, status: "rejected" };
 };
 
 const completeMoveIn = async (userId, adminUserId) => {
@@ -363,6 +418,16 @@ const completeMoveIn = async (userId, adminUserId) => {
   return { userId, roomStatus: user.roomDetails.status };
 };
 
+const deleteUser = async (userId, adminUserId) => {
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+  
+  await User.deleteOne({ "basicInfo.userId": userId });
+  logAdminAction("DELETE_USER", adminUserId, userId, { deletedAt: new Date() });
+  
+  return { success: true };
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -375,6 +440,8 @@ module.exports = {
   updateRoomType,
   updateUserStatus,
   verifyUserDocuments,
+  rejectUserDocuments,
   completeMoveIn,
   updateRoomRentDiscounts,
+  deleteUser,
 };

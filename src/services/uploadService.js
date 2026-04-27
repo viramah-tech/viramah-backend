@@ -18,4 +18,38 @@ const uploadPaymentProof = async (userId, file) => {
   return { url };
 };
 
-module.exports = { uploadDocument, uploadPaymentProof };
+const reuploadDocuments = async (user, files) => {
+  const User = require("../models/User"); // Dynamic require to avoid circular dependencies if any
+  const dbUser = await User.findById(user._id);
+  if (!dbUser) throw new ValidationError("User not found");
+
+  let updated = false;
+
+  if (files.idFront?.[0]) {
+    dbUser.userIdProof.frontImage = await uploadToS3(files.idFront[0], `documents/${dbUser.basicInfo.userId}/id`);
+    updated = true;
+  }
+  if (files.idBack?.[0]) {
+    dbUser.userIdProof.backImage = await uploadToS3(files.idBack[0], `documents/${dbUser.basicInfo.userId}/id`);
+    updated = true;
+  }
+
+  if (files.guardianIdFront?.[0]) {
+    dbUser.guardianDetails.idProof.frontImage = await uploadToS3(files.guardianIdFront[0], `documents/${dbUser.basicInfo.userId}/guardian-id`);
+    updated = true;
+  }
+  if (files.guardianIdBack?.[0]) {
+    dbUser.guardianDetails.idProof.backImage = await uploadToS3(files.guardianIdBack[0], `documents/${dbUser.basicInfo.userId}/guardian-id`);
+    updated = true;
+  }
+
+  if (updated) {
+    dbUser.verification.documentVerificationStatus = "pending";
+    dbUser.verification.documentRejectionReason = null;
+    await dbUser.save();
+  }
+
+  return { success: true, message: "Documents updated successfully" };
+};
+
+module.exports = { uploadDocument, uploadPaymentProof, reuploadDocuments };

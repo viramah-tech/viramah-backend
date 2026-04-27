@@ -114,14 +114,21 @@ const saveGuardianDetails = async (user, data, files = {}) => {
   return { nextStep: "room_selection" };
 };
 
-const computePaymentSummary = (roomType, pricing, includeMess, includeTransport, paymentPlan) => {
+const computePaymentSummary = (roomType, pricing, includeMess, includeTransport, paymentPlan, user) => {
   const tenure = pricing.tenureMonths;
   const monthlyRoomPrice = roomType.basePrice; // Initializing at Rack Rate
-  const rawRoomRent = monthlyRoomPrice * tenure;
+  
+  // Use customRackRate if the admin has overridden it for this user, otherwise calculate standard rack rate
+  const rawRoomRent = typeof user?.paymentSummary?.roomRent?.customRackRate === "number" 
+    ? user.paymentSummary.roomRent.customRackRate 
+    : (monthlyRoomPrice * tenure);
 
   // Apply discount based on selected payment plan
-  const fullDiscountPct = pricing.defaultFullPaymentDiscountPct ?? 40;
-  const halfDiscountPct = pricing.defaultHalfPaymentDiscountPct ?? 25;
+  const customFullPct = user?.paymentSummary?.roomRent?.fullPaymentDiscountPct;
+  const customHalfPct = user?.paymentSummary?.roomRent?.halfPaymentDiscountPct;
+
+  const fullDiscountPct = typeof customFullPct === "number" ? customFullPct : (pricing.defaultFullPaymentDiscountPct ?? 40);
+  const halfDiscountPct = typeof customHalfPct === "number" ? customHalfPct : (pricing.defaultHalfPaymentDiscountPct ?? 25);
 
   let discountPct = 0;
   if (paymentPlan === "full") {
@@ -161,6 +168,7 @@ const computePaymentSummary = (roomType, pricing, includeMess, includeTransport,
       fullPaymentDiscountPct: fullDiscountPct,
       halfPaymentDiscountPct: halfDiscountPct,
       appliedDiscountValue: discountValue,
+      customRackRate: user?.paymentSummary?.roomRent?.customRackRate,
       selectedPlan: paymentPlan,
     },
     messFee: entry(messFee),
@@ -187,7 +195,8 @@ const saveRoomSelection = async (user, data) => {
     pricing,
     user.roomDetails.includeMess,
     user.roomDetails.includeTransport,
-    data.paymentPlan
+    data.paymentPlan,
+    user
   );
 
   user.onboarding.currentStep = "review";

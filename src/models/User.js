@@ -70,6 +70,12 @@ const verificationSchema = new Schema(
     emailVerified: { type: Boolean, default: false },
     phoneVerified: { type: Boolean, default: true },
     documentVerified: { type: Boolean, default: false },
+    documentVerificationStatus: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
+    },
+    documentRejectionReason: { type: String, default: null },
     otp: String,
     otpExpiresAt: Date,
     otpAttempts: { type: Number, default: 0 },
@@ -180,6 +186,7 @@ const roomRentLedgerSchema = new Schema(
     fullPaymentDiscountPct: { type: Number, default: 40 },
     halfPaymentDiscountPct: { type: Number, default: 25 },
     appliedDiscountValue: { type: Number, default: 0 },
+    customRackRate: { type: Number },
     selectedPlan: { type: String, enum: ["pending", "full", "half"], default: "pending" }
   },
   { _id: false }

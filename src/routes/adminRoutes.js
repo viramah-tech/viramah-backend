@@ -100,6 +100,23 @@ router.put("/users/:userId/verify-documents", async (req, res, next) => {
   }
 });
 
+router.put(
+  "/users/:userId/reject-documents",
+  validate(Joi.object({ reason: Joi.string().min(3).max(500).required() })),
+  async (req, res, next) => {
+    try {
+      const result = await adminService.rejectUserDocuments(
+        req.params.userId,
+        req.user.basicInfo.userId,
+        req.validatedBody.reason
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.put("/users/:userId/move-in", async (req, res, next) => {
   try {
     const result = await adminService.completeMoveIn(req.params.userId, req.user.basicInfo.userId);
@@ -118,21 +135,32 @@ router.get("/users/:userId", async (req, res, next) => {
   }
 });
 
+router.delete("/users/:userId", async (req, res, next) => {
+  try {
+    await adminService.deleteUser(req.params.userId, req.user.basicInfo.userId);
+    res.json({ success: true, message: "User deleted successfully" });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.put(
   "/users/:userId/discounts",
   validate(
     Joi.object({
       fullPaymentDiscountPct: Joi.number().min(0).max(100),
       halfPaymentDiscountPct: Joi.number().min(0).max(100),
+      customRackRate: Joi.number().min(0),
     }).min(1)
   ),
   async (req, res, next) => {
     try {
-      const { fullPaymentDiscountPct, halfPaymentDiscountPct } = req.validatedBody;
+      const { fullPaymentDiscountPct, halfPaymentDiscountPct, customRackRate } = req.validatedBody;
       const roomRent = await adminService.updateRoomRentDiscounts(
         req.params.userId,
         fullPaymentDiscountPct,
-        halfPaymentDiscountPct
+        halfPaymentDiscountPct,
+        customRackRate
       );
       res.json({ success: true, data: { roomRent } });
     } catch (err) {

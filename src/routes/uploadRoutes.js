@@ -30,4 +30,19 @@ router.post("/payment-proof", auth, upload.single("file"), async (req, res, next
   }
 });
 
+router.post("/re-upload", auth, upload.fields([
+  { name: "idFront", maxCount: 1 },
+  { name: "idBack", maxCount: 1 },
+  { name: "guardianIdFront", maxCount: 1 },
+  { name: "guardianIdBack", maxCount: 1 },
+]), async (req, res, next) => {
+  try {
+    // Pass to a service or handle directly
+    const result = await uploadService.reuploadDocuments(req.user, req.files);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
