@@ -3,6 +3,9 @@ const mongoose = require("mongoose");
 const connectDB = async () => {
   const options = {
     dbName: process.env.DB_NAME || "viramah",
+    tls: true,
+    tlsAllowInvalidCertificates: true,
+    serverSelectionTimeoutMS: 5000, 
   };
 
   try {
