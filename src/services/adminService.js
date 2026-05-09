@@ -428,6 +428,31 @@ const deleteUser = async (userId, adminUserId) => {
   return { success: true };
 };
 
+const updateUserDetails = async (userId, userDetails, adminUserId) => {
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+
+  if (userDetails.basicInfo) {
+    if (userDetails.basicInfo.fullName !== undefined) user.basicInfo.fullName = userDetails.basicInfo.fullName;
+    if (userDetails.basicInfo.phone !== undefined) user.basicInfo.phone = userDetails.basicInfo.phone;
+    if (userDetails.basicInfo.gender !== undefined) user.basicInfo.gender = userDetails.basicInfo.gender;
+    if (userDetails.basicInfo.dateOfBirth !== undefined) user.basicInfo.dateOfBirth = userDetails.basicInfo.dateOfBirth;
+    if (userDetails.basicInfo.address !== undefined) user.basicInfo.address = userDetails.basicInfo.address;
+  }
+
+  if (userDetails.guardian) {
+    if (!user.guardian) user.guardian = {};
+    if (userDetails.guardian.fullName !== undefined) user.guardian.fullName = userDetails.guardian.fullName;
+    if (userDetails.guardian.relation !== undefined) user.guardian.relation = userDetails.guardian.relation;
+    if (userDetails.guardian.phone !== undefined) user.guardian.phone = userDetails.guardian.phone;
+    if (userDetails.guardian.alternatePhone !== undefined) user.guardian.alternatePhone = userDetails.guardian.alternatePhone;
+  }
+
+  await user.save();
+  logAdminAction("UPDATE_USER_DETAILS", adminUserId, userId, { updatedFields: userDetails });
+  return user;
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -444,4 +469,5 @@ module.exports = {
   completeMoveIn,
   updateRoomRentDiscounts,
   deleteUser,
+  updateUserDetails,
 };

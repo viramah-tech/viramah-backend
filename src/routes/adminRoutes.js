@@ -246,4 +246,29 @@ router.put("/room-types/:id", validate(roomTypeUpdateSchema), async (req, res, n
   }
 });
 
+const userDetailsSchema = Joi.object({
+  basicInfo: Joi.object({
+    fullName: Joi.string().min(2).max(120),
+    phone: Joi.string().pattern(/^[0-9+\- ]{7,15}$/).allow("", null),
+    gender: Joi.string().valid("male", "female", "other", null),
+    dateOfBirth: Joi.date().iso().allow(null),
+    address: Joi.string().min(10).max(500).allow("", null),
+  }),
+  guardian: Joi.object({
+    fullName: Joi.string().min(2).max(120).allow("", null),
+    relation: Joi.string().min(2).max(40).allow("", null),
+    phone: Joi.string().pattern(/^[0-9+\- ]{7,15}$/).allow("", null),
+    alternatePhone: Joi.string().pattern(/^[0-9+\- ]{7,15}$/).allow("", null),
+  }),
+}).min(1);
+
+router.put("/users/:userId/details", validate(userDetailsSchema), async (req, res, next) => {
+  try {
+    const user = await adminService.updateUserDetails(req.params.userId, req.validatedBody, req.user.basicInfo.userId);
+    res.json({ success: true, data: { user } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
