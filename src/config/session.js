@@ -4,7 +4,8 @@ const MongoStore = require("connect-mongo");
 const fs = require("fs");
 const path = require("path");
 
-const createSessionMiddleware = () => {
+const createSessionMiddleware = (mongoUrl) => {
+  const sessionMongoUrl = mongoUrl || process.env.MONGODB_URI;
   // Bulletproof production check: if the origins include the live domains, force production settings
   // regardless of what NODE_ENV says. This prevents failure if NODE_ENV=development is left in EC2 env.
   const isProduction = 
@@ -27,7 +28,7 @@ const createSessionMiddleware = () => {
     saveUninitialized: false,
     proxy: isProduction, // Trust X-Forwarded-Proto from nginx/ALB for secure cookies
     store: MongoStore.create({
-      mongoUrl: process.env.MONGODB_URI,
+      mongoUrl: sessionMongoUrl,
       dbName: process.env.DB_NAME || "viramah",
       collectionName: "sessions",
       ttl: 24 * 60 * 60,

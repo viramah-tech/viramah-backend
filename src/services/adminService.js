@@ -96,30 +96,78 @@ const updateRoomRentDiscounts = async (userId, fullPaymentDiscountPct, halfPayme
 };
 
 const getPayments = async (statusFilter) => {
-  const query = statusFilter ? { "paymentDetails.status": statusFilter } : { "paymentDetails": { $exists: true, $not: {$size: 0} } };
+  const query = statusFilter ? { "paymentDetails.status": statusFilter } : { role: "user" };
 
   const users = await User.find(query)
     .select(
-      "basicInfo.userId basicInfo.fullName basicInfo.email basicInfo.phone paymentDetails paymentSummary"
+      "basicInfo.userId basicInfo.fullName basicInfo.email basicInfo.phone paymentDetails paymentSummary onboarding roomDetails"
     )
     .sort({ "paymentDetails.paidAt": -1 });
 
   const paymentsList = [];
   for (const u of users) {
-    for (const p of u.paymentDetails) {
-      if (!statusFilter || p.status === statusFilter) {
+    if (u.paymentDetails && u.paymentDetails.length > 0) {
+      for (const p of u.paymentDetails) {
+        if (!statusFilter || p.status === statusFilter) {
+          paymentsList.push({
+            userId: u.basicInfo?.userId || 'UNKNOWN_ID',
+            fullName: u.basicInfo?.fullName || 'Unknown User',
+            email: u.basicInfo?.email || 'N/A',
+            phone: u.basicInfo?.phone || 'N/A',
+            payment: p,
+            paymentSummary: {
+              totalBilled: u.paymentSummary?.grandTotal?.total || 0,
+              totalPaid: u.paymentSummary?.grandTotal?.paid || 0,
+              paymentCount: u.paymentDetails?.length || 0,
+            },
+          });
+        }
+      }
+    } else {
+      // No payment details submitted yet
+      if (!statusFilter) {
+        let category = null;
+        let amount = 0;
+        let status = "unpaid";
+        
+        if (u.onboarding?.currentStep === "booking_payment") {
+          category = "booking";
+          amount = u.paymentSummary?.grandTotal?.total || 16000;
+          status = "pending_booking";
+        } else if (u.onboarding?.currentStep === "room_selection" || !u.roomDetails?.roomType) {
+          status = "no_room_chosen";
+        }
+
         paymentsList.push({
           userId: u.basicInfo?.userId || 'UNKNOWN_ID',
           fullName: u.basicInfo?.fullName || 'Unknown User',
           email: u.basicInfo?.email || 'N/A',
           phone: u.basicInfo?.phone || 'N/A',
-          payment: p,
+          payment: {
+            paymentId: `STUB_${u.basicInfo?.userId || 'UNKNOWN'}`,
+            paymentType: category === "booking" ? "booking" : "full",
+            category: category,
+            method: "—",
+            transactionId: "—",
+            amounts: { totalAmount: amount },
+            status: status,
+            paidAt: null,
+          },
+          paymentSummary: {
+            totalBilled: u.paymentSummary?.grandTotal?.total || 0,
+            totalPaid: u.paymentSummary?.grandTotal?.paid || 0,
+            paymentCount: 0,
+          },
         });
       }
     }
   }
   
-  paymentsList.sort((a,b) => (new Date(b.payment.paidAt || 0) - new Date(a.payment.paidAt || 0)));
+  paymentsList.sort((a, b) => {
+    const dateA = a.payment.paidAt ? new Date(a.payment.paidAt) : new Date(0);
+    const dateB = b.payment.paidAt ? new Date(b.payment.paidAt) : new Date(0);
+    return dateB - dateA;
+  });
   return paymentsList;
 };
 

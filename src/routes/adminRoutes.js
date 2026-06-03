@@ -8,12 +8,45 @@ const { logAdminAction } = require("../utils/auditLogger");
 
 const router = express.Router();
 
-// Apply auth and role guard to ALL routes
-router.use(auth, roleGuard("admin"));
+// Apply authentication to ALL routes
+router.use(auth);
 
-// Add additional verification that user is still admin (defense in depth)
+// Apply dynamic role verification (allowing sales_member/accountant to read users/rooms/payments and manage relevant items)
 router.use((req, res, next) => {
-  if (!req.user || req.user.role !== "admin") {
+  const isReadOnlyRoute = req.method === "GET" && (
+    req.path === "/users" ||
+    req.path.startsWith("/users/") ||
+    req.path === "/rooms" ||
+    req.path.startsWith("/rooms/") ||
+    req.path === "/sales-team" ||
+    req.path === "/payments" ||
+    req.path === "/dashboard"
+  );
+  
+  // Allow sales to manage rooms (POST /rooms, DELETE /rooms/:id)
+  const isSalesRoomAction = (req.method === "POST" || req.method === "DELETE") && (
+    req.path === "/rooms" ||
+    req.path.startsWith("/rooms/")
+  );
+
+  // Allow sales to save notes (PUT /users/:userId/notes)
+  const isSalesNoteAction = req.method === "PUT" && req.path.endsWith("/notes");
+
+  // Allow accountant to approve/reject payments
+  const isPaymentAction = req.method === "PUT" && 
+    req.path.startsWith("/payments/") && 
+    (req.path.endsWith("/approve") || req.path.endsWith("/reject"));
+  
+  let allowedRoles = ["admin"];
+  if (isReadOnlyRoute) {
+    allowedRoles = ["admin", "sales_member", "accountant"];
+  } else if (isSalesRoomAction || isSalesNoteAction) {
+    allowedRoles = ["admin", "sales_member"];
+  } else if (isPaymentAction) {
+    allowedRoles = ["admin", "accountant"];
+  }
+
+  if (!req.user || !allowedRoles.includes(req.user.role)) {
     return res.status(403).json({
       success: false,
       error: { message: "Insufficient permissions", code: "FORBIDDEN" },
@@ -57,6 +90,47 @@ const roomTypeSchema = Joi.object({
 const roomTypeUpdateSchema = roomTypeSchema.fork(Object.keys(roomTypeSchema.describe().keys), (s) =>
   s.optional()
 );
+
+const roomSchema = Joi.object({
+  roomNumber: Joi.string().required(),
+  roomType: Joi.string().custom((value, helpers) => {
+    if (!require('mongoose').Types.ObjectId.isValid(value)) return helpers.error('any.invalid');
+    return value;
+  }).required(),
+  floor: Joi.number().integer().required(),
+  capacity: Joi.number().integer().min(1).required(),
+});
+
+router.post("/rooms", validate(roomSchema), async (req, res, next) => {
+  try {
+    const Room = require("../models/Room");
+    const RoomType = require("../models/RoomType");
+    const { roomNumber, roomType, floor } = req.validatedBody;
+    
+    const existing = await Room.findOne({ roomNumber });
+    if (existing) {
+      return res.status(400).json({ success: false, message: "Room number already exists" });
+    }
+
+    const typeDoc = await RoomType.findById(roomType);
+    if (!typeDoc) {
+      return res.status(400).json({ success: false, message: "Invalid Room Type selected" });
+    }
+
+    // Force capacity based on selected room type
+    let finalCapacity = typeDoc.capacity || 1;
+    if (typeDoc.name === "Axis+") finalCapacity = 1;
+    else if (typeDoc.name === "Axis") finalCapacity = 2;
+    else if (typeDoc.name === "Collective") finalCapacity = 3;
+    else if (typeDoc.name === "Nexus") finalCapacity = 4;
+
+    const room = new Room({ roomNumber, roomType, floor, capacity: finalCapacity, currentOccupancy: 0, status: "Available" });
+    await room.save();
+    res.status(201).json({ success: true, data: { room } });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get("/users", async (req, res, next) => {
   try {
@@ -169,6 +243,36 @@ router.put(
   }
 );
 
+router.put(
+  "/users/:userId/notes",
+  validate(Joi.object({ note: Joi.string().min(1).max(1000).required() })),
+  async (req, res, next) => {
+    try {
+      const User = require("../models/User");
+      const user = await User.findOne({ "basicInfo.userId": req.params.userId });
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+      
+      if (!user.admin) user.admin = {};
+      if (!user.admin.notes) user.admin.notes = [];
+      
+      const newNote = {
+        text: req.validatedBody.note,
+        addedBy: req.user.basicInfo.fullName || "Sales Agent",
+        addedAt: new Date(),
+      };
+      
+      user.admin.notes.push(JSON.stringify(newNote));
+      await user.save();
+      
+      res.json({ success: true, data: { notes: user.admin.notes } });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.get("/payments", async (req, res, next) => {
   try {
     const { status } = req.query;
@@ -253,6 +357,7 @@ const userDetailsSchema = Joi.object({
     gender: Joi.string().valid("male", "female", "other", null),
     dateOfBirth: Joi.date().iso().allow(null),
     address: Joi.string().min(10).max(500).allow("", null),
+    residentId: Joi.string().allow("", null),
   }),
   guardian: Joi.object({
     fullName: Joi.string().min(2).max(120).allow("", null),
@@ -266,6 +371,315 @@ router.put("/users/:userId/details", validate(userDetailsSchema), async (req, re
   try {
     const user = await adminService.updateUserDetails(req.params.userId, req.validatedBody, req.user.basicInfo.userId);
     res.json({ success: true, data: { user } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ----------------------------------------------------
+// SALES TEAM MANAGEMENT
+// ----------------------------------------------------
+
+const salesTeamSchema = Joi.object({
+  fullName: Joi.string().required(),
+  email: Joi.string().email().required(),
+  phone: Joi.string().required(),
+  password: Joi.string().min(6).required(),
+});
+
+router.post("/sales-team", validate(salesTeamSchema), async (req, res, next) => {
+  try {
+    const { fullName, email, phone, password } = req.validatedBody;
+    const bcrypt = require("bcrypt");
+    const User = require("../models/User");
+    const SalesAgent = require("../models/SalesAgent");
+    
+    // Check if email already exists in User or SalesAgent collections
+    const existingUser = await User.findOne({ "basicInfo.email": email.toLowerCase() });
+    const existingAgent = await SalesAgent.findOne({ "basicInfo.email": email.toLowerCase() });
+    if (existingUser || existingAgent) {
+      return res.status(400).json({ success: false, message: "User with this email already exists" });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const userId = `SALES_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    
+    const newSalesMember = new SalesAgent({
+      basicInfo: { userId, fullName, email: email.toLowerCase(), phone },
+      auth: { passwordHash },
+      role: "sales_member",
+      accountStatus: "active"
+    });
+
+    await newSalesMember.save();
+    res.status(201).json({ success: true, data: { userId, fullName, email, role: "sales_member" } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/sales-team", async (req, res, next) => {
+  try {
+    const SalesAgent = require("../models/SalesAgent");
+    const team = await SalesAgent.find({}, "basicInfo.userId basicInfo.fullName basicInfo.email basicInfo.phone accountStatus createdAt");
+    res.json({ success: true, data: team });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const salesTeamUpdateSchema = Joi.object({
+  fullName: Joi.string().optional(),
+  email: Joi.string().email().optional(),
+  phone: Joi.string().optional(),
+  password: Joi.string().min(6).optional().allow(""),
+}).min(1);
+
+router.put("/sales-team/:userId", validate(salesTeamUpdateSchema), async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const { fullName, email, phone, password } = req.validatedBody;
+    const User = require("../models/User");
+    const SalesAgent = require("../models/SalesAgent");
+    const bcrypt = require("bcrypt");
+
+    // Find sales agent (supporting lookup by custom userId OR MongoDB ObjectId)
+    const mongoose = require("mongoose");
+    const query = mongoose.Types.ObjectId.isValid(userId)
+      ? { $or: [{ _id: userId }, { "basicInfo.userId": userId }] }
+      : { "basicInfo.userId": userId };
+
+    const agent = await SalesAgent.findOne(query);
+    if (!agent) {
+      return res.status(404).json({ success: false, message: "Sales agent not found" });
+    }
+
+    // Check email duplication in both collections if email changed
+    if (email && email.toLowerCase() !== agent.basicInfo.email.toLowerCase()) {
+      const existingUser = await User.findOne({ "basicInfo.email": email.toLowerCase() });
+      const existingAgent = await SalesAgent.findOne({ "basicInfo.email": email.toLowerCase() });
+      if (existingUser || existingAgent) {
+        return res.status(400).json({ success: false, message: "User with this email already exists" });
+      }
+      agent.basicInfo.email = email.toLowerCase();
+    }
+
+    if (fullName) agent.basicInfo.fullName = fullName;
+    if (phone) agent.basicInfo.phone = phone;
+
+    if (password && password.trim() !== "") {
+      agent.auth.passwordHash = await bcrypt.hash(password, 10);
+    }
+
+    await agent.save();
+    
+    res.json({
+      success: true,
+      data: {
+        userId: agent.basicInfo.userId,
+        fullName: agent.basicInfo.fullName,
+        email: agent.basicInfo.email,
+        role: agent.role,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+// ----------------------------------------------------
+
+// Delete a sales team member
+router.delete('/sales-team/:userId', async (req, res, next) => {
+  try {
+    const mongoose = require('mongoose');
+    const query = mongoose.Types.ObjectId.isValid(req.params.userId)
+      ? { $or: [{ _id: req.params.userId }, { 'basicInfo.userId': req.params.userId }] }
+      : { 'basicInfo.userId': req.params.userId };
+    const SalesAgent = require('../models/SalesAgent');
+    const agent = await SalesAgent.findOne(query);
+    if (!agent) {
+      return res.status(404).json({ success: false, message: 'Sales agent not found' });
+    }
+    await SalesAgent.deleteOne(query);
+    await logAdminAction(req.user.basicInfo.userId, `Deleted sales agent ${agent.basicInfo.userId}`);
+    res.json({ success: true, message: 'Sales agent removed' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ----------------------------------------------------
+// ----------------------------------------------------
+// PHYSICAL ROOM MANAGEMENT
+// ----------------------------------------------------
+
+const physicalRoomSchema = Joi.object({
+  roomNumber: Joi.string().required(),
+  capacity: Joi.number().integer().min(1).required(),
+  roomType: Joi.string().required() // ObjectId string
+});
+
+router.post("/rooms", validate(physicalRoomSchema), async (req, res, next) => {
+  try {
+    const Room = require("../models/Room");
+    const RoomType = require("../models/RoomType");
+    const { roomNumber, roomType } = req.validatedBody;
+    
+    const existing = await Room.findOne({ roomNumber });
+    if (existing) {
+      return res.status(400).json({ success: false, message: "Room number already exists" });
+    }
+
+    const typeDoc = await RoomType.findById(roomType);
+    if (!typeDoc) {
+      return res.status(400).json({ success: false, message: "Invalid Room Type selected" });
+    }
+
+    // Force capacity based on selected room type
+    let finalCapacity = typeDoc.capacity || 1;
+    if (typeDoc.name === "Axis+") finalCapacity = 1;
+    else if (typeDoc.name === "Axis") finalCapacity = 2;
+    else if (typeDoc.name === "Collective") finalCapacity = 3;
+    else if (typeDoc.name === "Nexus") finalCapacity = 4;
+
+    const newRoom = new Room({ roomNumber, capacity: finalCapacity, roomType });
+    await newRoom.save();
+    
+    res.status(201).json({ success: true, data: newRoom });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/rooms", async (req, res, next) => {
+  try {
+    const Room = require("../models/Room");
+    const User = require("../models/User");
+    
+    const rooms = await Room.find().populate("roomType", "name capacity");
+    
+    // Dynamically calculate occupancy based on count of active users in the User collection
+    const updatedRooms = await Promise.all(
+      rooms.map(async (room) => {
+        // Fetch active occupants reference by roomRef OR by matching roomNumber string
+        const activeOccupants = await User.find({
+          $or: [
+            { "roomDetails.roomRef": room._id },
+            { "roomDetails.roomNumber": room.roomNumber }
+          ],
+          role: { $in: ["user", "tenant"] },
+          accountStatus: "active"
+        }, "basicInfo.userId basicInfo.fullName basicInfo.email basicInfo.phone");
+
+        const roomObj = room.toObject();
+        roomObj.currentOccupancy = activeOccupants.length;
+        
+        // Map occupants to simple list
+        roomObj.occupants = activeOccupants.map(occ => ({
+          userId: occ.basicInfo.userId,
+          fullName: occ.basicInfo.fullName,
+          email: occ.basicInfo.email,
+          phone: occ.basicInfo.phone
+        }));
+
+        if (activeOccupants.length >= room.capacity) {
+          roomObj.status = "Full";
+        } else {
+          roomObj.status = "Available";
+        }
+        
+        return roomObj;
+      })
+    );
+    
+    res.json({ success: true, data: updatedRooms });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Delete a physical room (with occupancy check)
+router.delete("/rooms/:id", async (req, res, next) => {
+  try {
+    const Room = require("../models/Room");
+    const User = require("../models/User");
+    
+    const room = await Room.findById(req.params.id);
+    if (!room) {
+      return res.status(404).json({ success: false, message: "Room not found" });
+    }
+
+    // Check if there are any active occupants referencing this room's _id or roomNumber
+    const activeOccupants = await User.countDocuments({
+      $or: [
+        { "roomDetails.roomRef": room._id },
+        { "roomDetails.roomNumber": room.roomNumber }
+      ],
+      role: { $in: ["user", "tenant"] },
+      accountStatus: "active"
+    });
+
+    if (activeOccupants > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete Room ${room.roomNumber} because it currently has ${activeOccupants} active occupant(s).`
+      });
+    }
+
+    await Room.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: `Room ${room.roomNumber} deleted successfully` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ----------------------------------------------------
+// S3 DATA MANAGEMENT
+// ----------------------------------------------------
+router.get("/s3/objects", roleGuard("admin"), async (req, res, next) => {
+  try {
+    const { ListObjectsV2Command } = require("@aws-sdk/client-s3");
+    const { s3Client, bucketName } = require("../config/s3");
+
+    if (!bucketName) {
+      return res.status(400).json({ success: false, message: "S3 Bucket is not configured" });
+    }
+
+    const command = new ListObjectsV2Command({
+      Bucket: bucketName,
+    });
+    const data = await s3Client.send(command);
+    const objects = (data.Contents || []).map((item) => ({
+      key: item.Key,
+      size: item.Size,
+      lastModified: item.LastModified,
+      url: `https://${bucketName}.s3.${process.env.AWS_REGION || "ap-south-1"}.amazonaws.com/${item.Key}`,
+    }));
+
+    res.json({ success: true, data: { objects } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/s3/objects", roleGuard("admin"), validate(Joi.object({ key: Joi.string().required() })), async (req, res, next) => {
+  try {
+    const { DeleteObjectCommand } = require("@aws-sdk/client-s3");
+    const { s3Client, bucketName } = require("../config/s3");
+    const { key } = req.validatedBody;
+
+    if (!bucketName) {
+      return res.status(400).json({ success: false, message: "S3 Bucket is not configured" });
+    }
+
+    const command = new DeleteObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+    });
+    await s3Client.send(command);
+    await logAdminAction(req.user.basicInfo.userId, `Deleted file from S3: ${key}`);
+
+    res.json({ success: true, message: `File ${key} deleted successfully` });
   } catch (err) {
     next(err);
   }

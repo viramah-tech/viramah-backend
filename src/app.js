@@ -64,7 +64,8 @@ const globalLimiter = rateLimit({
 app.use(globalLimiter);
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use(createSessionMiddleware());
+const { getResolvedMongoUri } = require("./config/db");
+app.use(createSessionMiddleware(getResolvedMongoUri()));
 
 app.get("/api/health", (req, res) => {
   res.json({ success: true, message: "Viramah API is running" });
@@ -79,6 +80,8 @@ const pricingRoutes = require("./routes/pricingRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const websiteRoutes = require("./routes/websiteRoutes");
+const salesRoutes = require("./routes/salesRoutes");
 
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/public/auth", authLimiter, authRoutes);
@@ -89,6 +92,8 @@ app.use("/api/pricing", pricingRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/website", websiteRoutes);
+app.use("/api/sales", salesRoutes);
 
 // 404
 app.use((req, res, next) => {

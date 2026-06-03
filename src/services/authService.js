@@ -21,8 +21,11 @@ const sanitize = (user) => {
 
 const register = async ({ name, email, phone, password, salesAgent }) => {
   const normalizedEmail = email.toLowerCase().trim();
-  const existing = await User.findOne({ "basicInfo.email": normalizedEmail });
-  if (existing) {
+  const SalesAgent = require("../models/SalesAgent");
+  
+  const existingUser = await User.findOne({ "basicInfo.email": normalizedEmail });
+  const existingAgent = await SalesAgent.findOne({ "basicInfo.email": normalizedEmail });
+  if (existingUser || existingAgent) {
     throw new ConflictError("An account with this email already exists");
   }
 
@@ -69,7 +72,11 @@ const login = async ({ email, password }) => {
     };
   }
 
-  const user = await User.findOne({ "basicInfo.email": normalizedEmail });
+  let user = await User.findOne({ "basicInfo.email": normalizedEmail });
+  if (!user) {
+    const SalesAgent = require("../models/SalesAgent");
+    user = await SalesAgent.findOne({ "basicInfo.email": normalizedEmail });
+  }
   if (!user) {
     throw new AuthError("Invalid email or password");
   }
@@ -122,7 +129,11 @@ const getMe = async (userId) => {
     };
   }
 
-  const user = await User.findOne({ "basicInfo.userId": userId });
+  let user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) {
+    const SalesAgent = require("../models/SalesAgent");
+    user = await SalesAgent.findOne({ "basicInfo.userId": userId });
+  }
   if (!user) throw new NotFoundError("User not found");
   return sanitize(user);
 };
@@ -137,12 +148,17 @@ const maskEmail = (email) => {
 
 const forgotPasswordSendOtp = async (email) => {
   const normalizedEmail = email.toLowerCase().trim();
-  const user = await User.findOne({ "basicInfo.email": normalizedEmail });
+  let user = await User.findOne({ "basicInfo.email": normalizedEmail });
+  if (!user) {
+    const SalesAgent = require("../models/SalesAgent");
+    user = await SalesAgent.findOne({ "basicInfo.email": normalizedEmail });
+  }
   if (!user) throw new NotFoundError("no account found with this email id signup first");
 
   const otp = String(Math.floor(100000 + Math.random() * 900000));
   const otpHash = await bcrypt.hash(otp, SALT_ROUNDS);
 
+  if (!user.verification) user.verification = {};
   user.verification.otp = otpHash;
   user.verification.otpExpiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
   user.verification.otpAttempts = 0;
@@ -155,7 +171,11 @@ const forgotPasswordSendOtp = async (email) => {
 
 const forgotPasswordVerifyOtp = async (email, otp) => {
   const normalizedEmail = email.toLowerCase().trim();
-  const user = await User.findOne({ "basicInfo.email": normalizedEmail });
+  let user = await User.findOne({ "basicInfo.email": normalizedEmail });
+  if (!user) {
+    const SalesAgent = require("../models/SalesAgent");
+    user = await SalesAgent.findOne({ "basicInfo.email": normalizedEmail });
+  }
   if (!user) throw new AuthError("Invalid or expired OTP");
 
   const v = user.verification;
@@ -178,7 +198,11 @@ const forgotPasswordVerifyOtp = async (email, otp) => {
 
 const resetPassword = async (email, newPassword) => {
   const normalizedEmail = email.toLowerCase().trim();
-  const user = await User.findOne({ "basicInfo.email": normalizedEmail });
+  let user = await User.findOne({ "basicInfo.email": normalizedEmail });
+  if (!user) {
+    const SalesAgent = require("../models/SalesAgent");
+    user = await SalesAgent.findOne({ "basicInfo.email": normalizedEmail });
+  }
   if (!user || !user.verification?.otpVerified) {
     throw new AuthError("OTP verification required before resetting password");
   }

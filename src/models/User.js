@@ -19,6 +19,7 @@ const idProofSubSchema = new Schema(
 const basicInfoSchema = new Schema(
   {
     userId: { type: String, required: true, unique: true, index: true },
+    residentId: { type: String, sparse: true, index: true }, // Added for Sales Portal
     fullName: String,
     email: { type: String, required: true, lowercase: true, trim: true, index: true },
     phone: { type: String, default: "", index: true }, // Collected later in verify-contact
@@ -52,6 +53,7 @@ const guardianSchema = new Schema(
 const roomDetailsSchema = new Schema(
   {
     roomType: { type: Schema.Types.ObjectId, ref: "RoomType", default: null },
+    roomRef: { type: Schema.Types.ObjectId, ref: "Room", default: null }, // Added reference to new physical Room model
     roomNumber: String,
     allocationDate: Date,
     status: {
@@ -279,7 +281,7 @@ const userSchema = new Schema(
     referral: { type: referralSchema, default: () => ({}) },
     compliance: { type: complianceSchema, default: () => ({}) },
     auth: { type: authSchema, required: true },
-    role: { type: String, enum: ["user", "admin"], default: "user", index: true },
+    role: { type: String, enum: ["user", "admin", "sales_member", "tenant", "accountant"], default: "user", index: true },
     accountStatus: {
       type: String,
       enum: ["pending", "active", "suspended", "blocked"],

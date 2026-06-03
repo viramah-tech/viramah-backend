@@ -21,7 +21,11 @@ const auth = async (req, res, next) => {
       return next();
     }
 
-    const user = await User.findOne({ "basicInfo.userId": req.session.userId });
+    let user = await User.findOne({ "basicInfo.userId": req.session.userId });
+    if (!user) {
+      const SalesAgent = require("../models/SalesAgent");
+      user = await SalesAgent.findOne({ "basicInfo.userId": req.session.userId });
+    }
     if (!user) {
       throw new AuthError("User not found");
     }

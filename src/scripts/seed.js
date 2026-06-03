@@ -120,11 +120,42 @@ const seedAdmin = async () => {
   console.log(`[seed] Admin user created: ${email} / ${password}`);
 };
 
+const seedAccountant = async () => {
+  const email = "accountant@viramah.com";
+  const password = "accountant123";
+  const phone = "8888888888";
+
+  const existing = await User.findOne({ "basicInfo.email": email });
+  if (existing) {
+    console.log(`[seed] Accountant user already exists: ${email}`);
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const userId = "ACCOUNTANT_1";
+
+  await User.create({
+    basicInfo: {
+      userId,
+      fullName: "Viramah Accountant",
+      email,
+      phone,
+    },
+    auth: { passwordHash },
+    role: "accountant",
+    accountStatus: "active",
+    onboarding: { currentStep: "completed", startedAt: new Date(), completedAt: new Date() },
+    verification: { emailVerified: true, phoneVerified: true },
+  });
+  console.log(`[seed] Accountant user created: ${email} / ${password}`);
+};
+
 const run = async () => {
   await connectDB();
   await seedPricing();
   await seedRoomTypes();
   await seedAdmin();
+  await seedAccountant();
   await mongoose.connection.close();
   console.log("[seed] Done.");
 };
