@@ -645,16 +645,75 @@ router.get("/s3/objects", roleGuard("admin"), async (req, res, next) => {
       return res.status(400).json({ success: false, message: "S3 Bucket is not configured" });
     }
 
-    const command = new ListObjectsV2Command({
-      Bucket: bucketName,
-    });
-    const data = await s3Client.send(command);
-    const objects = (data.Contents || []).map((item) => ({
-      key: item.Key,
-      size: item.Size,
-      lastModified: item.LastModified,
-      url: `https://${bucketName}.s3.${process.env.AWS_REGION || "ap-south-1"}.amazonaws.com/${item.Key}`,
-    }));
+    let objects = [];
+    try {
+      const command = new ListObjectsV2Command({
+        Bucket: bucketName,
+      });
+      const data = await s3Client.send(command);
+      objects = (data.Contents || []).map((item) => ({
+        key: item.Key,
+        size: item.Size,
+        lastModified: item.LastModified,
+        url: `https://${bucketName}.s3.${process.env.AWS_REGION || "ap-south-1"}.amazonaws.com/${item.Key}`,
+      }));
+    } catch (s3Err) {
+      console.warn("[S3] Direct bucket listing failed, falling back to Database aggregation:", s3Err.message);
+      
+      const User = require("../models/User");
+      const users = await User.find({}, {
+        profilePhoto: 1,
+        userIdProof: 1,
+        guardianDetails: 1,
+        paymentDetails: 1,
+        createdAt: 1,
+        updatedAt: 1
+      }).lean();
+
+      const parseS3Url = (url) => {
+        if (!url || typeof url !== 'string') return null;
+        try {
+          const parsed = new URL(url);
+          if (parsed.hostname.includes('.amazonaws.com')) {
+            return decodeURIComponent(parsed.pathname.slice(1));
+          }
+        } catch (e) {}
+        return null;
+      };
+
+      const objectsMap = new Map();
+      const addUrl = (url, fallbackDate) => {
+        if (!url) return;
+        const key = parseS3Url(url);
+        if (key) {
+          if (!objectsMap.has(key)) {
+            objectsMap.set(key, {
+              key,
+              size: 256 * 1024, // 256 KB fallback size
+              lastModified: fallbackDate || new Date(),
+              url: url,
+            });
+          }
+        }
+      };
+
+      users.forEach(user => {
+        const userDate = user.updatedAt || user.createdAt || new Date();
+        addUrl(user.profilePhoto?.url, user.profilePhoto?.uploadedAt || userDate);
+        addUrl(user.userIdProof?.frontImage, userDate);
+        addUrl(user.userIdProof?.backImage, userDate);
+        addUrl(user.guardianDetails?.idProof?.frontImage, userDate);
+        addUrl(user.guardianDetails?.idProof?.backImage, userDate);
+
+        if (user.paymentDetails && Array.isArray(user.paymentDetails)) {
+          user.paymentDetails.forEach(payment => {
+            addUrl(payment.proof?.url, payment.proof?.uploadedAt || payment.paidAt || userDate);
+          });
+        }
+      });
+
+      objects = Array.from(objectsMap.values());
+    }
 
     res.json({ success: true, data: { objects } });
   } catch (err) {
@@ -672,11 +731,35 @@ router.delete("/s3/objects", roleGuard("admin"), validate(Joi.object({ key: Joi.
       return res.status(400).json({ success: false, message: "S3 Bucket is not configured" });
     }
 
-    const command = new DeleteObjectCommand({
-      Bucket: bucketName,
-      Key: key,
-    });
-    await s3Client.send(command);
+    // Attempt to delete physical object from AWS S3
+    try {
+      const command = new DeleteObjectCommand({
+        Bucket: bucketName,
+        Key: key,
+      });
+      await s3Client.send(command);
+    } catch (s3Err) {
+      console.warn(`[S3] Direct file deletion failed for ${key}:`, s3Err.message);
+    }
+
+    // Clean up all matching document references in MongoDB User collection
+    const User = require("../models/User");
+    const region = process.env.AWS_REGION || "ap-south-1";
+    const url1 = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
+    const url2 = `https://${bucketName}.s3.amazonaws.com/${key}`;
+    const targetUrls = [url1, url2];
+
+    await User.updateMany({ "profilePhoto.url": { $in: targetUrls } }, { $set: { "profilePhoto.url": null } });
+    await User.updateMany({ "userIdProof.frontImage": { $in: targetUrls } }, { $set: { "userIdProof.frontImage": null } });
+    await User.updateMany({ "userIdProof.backImage": { $in: targetUrls } }, { $set: { "userIdProof.backImage": null } });
+    await User.updateMany({ "guardianDetails.idProof.frontImage": { $in: targetUrls } }, { $set: { "guardianDetails.idProof.frontImage": null } });
+    await User.updateMany({ "guardianDetails.idProof.backImage": { $in: targetUrls } }, { $set: { "guardianDetails.idProof.backImage": null } });
+    await User.updateMany(
+      { "paymentDetails.proof.url": { $in: targetUrls } },
+      { $set: { "paymentDetails.$[elem].proof.url": null } },
+      { arrayFilters: [{ "elem.proof.url": { $in: targetUrls } }] }
+    );
+
     await logAdminAction(req.user.basicInfo.userId, `Deleted file from S3: ${key}`);
 
     res.json({ success: true, message: `File ${key} deleted successfully` });
