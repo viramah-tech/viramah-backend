@@ -16,6 +16,7 @@ const getResend = () => {
 const resend = {
   emails: {
     send: (...args) => getResend().emails.send(...args),
+    get: (...args) => getResend().emails.get(...args),
   },
 };
 

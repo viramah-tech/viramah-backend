@@ -10,6 +10,10 @@ const start = async () => {
   const { runSalesAgentMigration } = require("./src/utils/migration");
   await runSalesAgentMigration();
 
+  // Start background email worker
+  const { startEmailWorker } = require("./src/utils/emailWorker");
+  startEmailWorker();
+
   const app = require("./src/app");
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);

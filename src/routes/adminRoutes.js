@@ -134,8 +134,8 @@ router.post("/rooms", validate(roomSchema), async (req, res, next) => {
 
 router.get("/users", async (req, res, next) => {
   try {
-    const { status, step, page, limit } = req.query;
-    const result = await adminService.getUsers({ status, step, page, limit });
+    const { status, step, search, page, limit } = req.query;
+    const result = await adminService.getUsers({ status, step, search, page, limit });
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);

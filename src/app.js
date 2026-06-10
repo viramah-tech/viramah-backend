@@ -82,6 +82,7 @@ const uploadRoutes = require("./routes/uploadRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const websiteRoutes = require("./routes/websiteRoutes");
 const salesRoutes = require("./routes/salesRoutes");
+const emailRoutes = require("./routes/emailRoutes");
 
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/public/auth", authLimiter, authRoutes);
@@ -92,6 +93,7 @@ app.use("/api/pricing", pricingRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin/emails", emailRoutes);
 app.use("/api/website", websiteRoutes);
 app.use("/api/sales", salesRoutes);
 

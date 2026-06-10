@@ -19,10 +19,23 @@ const CATEGORY_KEYS = [
   "transportFee",
 ];
 
-const getUsers = async ({ status, step, page = 1, limit = 20 }) => {
+const getUsers = async ({ status, step, search, page = 1, limit = 20 }) => {
   const query = {};
   if (status) query.accountStatus = status;
   if (step) query["onboarding.currentStep"] = step;
+
+  if (search && search.trim() !== "") {
+    const escapedSearch = search.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const searchRegex = new RegExp(escapedSearch, "i");
+    query.$or = [
+      { "basicInfo.fullName": searchRegex },
+      { "basicInfo.email": searchRegex },
+      { "basicInfo.phone": searchRegex },
+      { "basicInfo.userId": searchRegex },
+      { "basicInfo.residentId": searchRegex },
+      { "guardianDetails.fullName": searchRegex }
+    ];
+  }
 
   const skip = (Math.max(1, Number(page)) - 1) * Math.max(1, Number(limit));
   const [users, total] = await Promise.all([
