@@ -1,7 +1,7 @@
 const User = require("../models/User");
 const RoomType = require("../models/RoomType");
 const PricingConfig = require("../models/PricingConfig");
-const { allocateWaterfall } = require("../utils/waterfall");
+const { allocateWaterfall, recalculateGrandTotal } = require("../utils/waterfall");
 const {
   NotFoundError,
   ValidationError,
@@ -86,22 +86,17 @@ const updateRoomRentDiscounts = async (userId, fullPaymentDiscountPct, halfPayme
     const discountPct = plan === "full" ? user.paymentSummary.roomRent.fullPaymentDiscountPct : user.paymentSummary.roomRent.halfPaymentDiscountPct;
     
     const newDiscountValue = Math.round(rawRoomRent * (discountPct / 100));
-    const oldDiscountValue = user.paymentSummary.roomRent.appliedDiscountValue || 0;
-    const discountDifference = newDiscountValue - oldDiscountValue;
 
     user.paymentSummary.roomRent.appliedDiscountValue = newDiscountValue;
-    user.paymentSummary.roomRent.total -= discountDifference;
-    user.paymentSummary.roomRent.remaining -= discountDifference;
     
-    user.paymentSummary.grandTotal.total -= discountDifference;
-    user.paymentSummary.grandTotal.remaining -= discountDifference;
+    const newTotal = rawRoomRent - newDiscountValue;
+    user.paymentSummary.roomRent.total = newTotal;
+    
+    const roomRentPaid = user.paymentSummary.roomRent.paid || 0;
+    user.paymentSummary.roomRent.remaining = Math.max(0, newTotal - roomRentPaid);
 
-    // Prevent negative balances
-    user.paymentSummary.roomRent.remaining = Math.max(0, user.paymentSummary.roomRent.remaining);
-    user.paymentSummary.grandTotal.remaining = Math.max(0, user.paymentSummary.grandTotal.remaining);
-
-    // If fully paid state changes
-    user.paymentSummary.isFullyPaid = user.paymentSummary.grandTotal.remaining <= 0;
+    // Dynamic grandTotal recalculation to avoid desync
+    recalculateGrandTotal(user.paymentSummary);
   }
 
   await user.save();
@@ -185,7 +180,6 @@ const getPayments = async (statusFilter) => {
 };
 
 const applyBreakdown = (summary, breakdown) => {
-  let totalApplied = 0;
   for (const key of CATEGORY_KEYS) {
     const amount = breakdown[key] || 0;
     if (amount <= 0) continue;
@@ -196,11 +190,8 @@ const applyBreakdown = (summary, breakdown) => {
     }
     entry.paid += amount;
     entry.remaining -= amount;
-    totalApplied += amount;
   }
-  summary.grandTotal.paid += totalApplied;
-  summary.grandTotal.remaining -= totalApplied;
-  summary.isFullyPaid = summary.grandTotal.remaining === 0;
+  recalculateGrandTotal(summary);
   return summary;
 };
 

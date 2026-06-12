@@ -8,6 +8,7 @@ const {
   AppError,
 } = require("../utils/errors");
 const { logPaymentAudit } = require("../utils/auditLogger");
+const { recalculateGrandTotal } = require("../utils/waterfall");
 
 const CATEGORY_MAP = {
   room_rent: "roomRent",
@@ -441,22 +442,17 @@ const upgradePaymentPlan = async (user) => {
   const fullDiscountPct = user.paymentSummary.roomRent.fullPaymentDiscountPct || 40;
   const newDiscountValue = Math.round(rawRoomRent * (fullDiscountPct / 100));
   const newTotal = rawRoomRent - newDiscountValue;
-  
-  const discountDifference = newDiscountValue - currentAppliedDiscount;
 
   // Update roomRent ledger
   user.paymentSummary.roomRent.selectedPlan = "full";
   user.paymentSummary.roomRent.appliedDiscountValue = newDiscountValue;
   user.paymentSummary.roomRent.total = newTotal;
-  user.paymentSummary.roomRent.remaining -= discountDifference;
   
-  // Update grandTotal ledger
-  user.paymentSummary.grandTotal.total -= discountDifference;
-  user.paymentSummary.grandTotal.remaining -= discountDifference;
-
-  // Prevent negative balances if there's any odd case
-  user.paymentSummary.roomRent.remaining = Math.max(0, user.paymentSummary.roomRent.remaining);
-  user.paymentSummary.grandTotal.remaining = Math.max(0, user.paymentSummary.grandTotal.remaining);
+  const roomRentPaid = user.paymentSummary.roomRent.paid || 0;
+  user.paymentSummary.roomRent.remaining = Math.max(0, newTotal - roomRentPaid);
+  
+  // Dynamic grandTotal recalculation to avoid desync
+  recalculateGrandTotal(user.paymentSummary);
 
   await user.save();
 
