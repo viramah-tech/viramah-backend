@@ -101,4 +101,70 @@ const recalculateGrandTotal = (summary) => {
   summary.isFullyPaid = summary.grandTotal.remaining <= 0;
 };
 
-module.exports = { allocateWaterfall, recalculateGrandTotal };
+const MAP_PAYMENT_CATEGORY_TO_SUMMARY_KEY = {
+  room_rent: "roomRent",
+  mess: "messFee",
+  transport: "transportFee",
+  security_deposit: "securityDeposit",
+  registration_fee: "registrationFee",
+};
+
+const reapplyApprovedPayments = (user) => {
+  const summary = user.paymentSummary;
+  if (!summary) return;
+
+  const categories = ["registrationFee", "securityDeposit", "roomRent", "messFee", "transportFee"];
+
+  // 1. Reset all paid and remaining values to total (starting from scratch)
+  for (const cat of categories) {
+    if (summary[cat]) {
+      summary[cat].paid = 0;
+      summary[cat].remaining = summary[cat].total || 0;
+    }
+  }
+
+  // 2. Loop through all approved payments and apply them
+  const approvedPayments = (user.paymentDetails || []).filter((p) => p.status === "approved");
+
+  for (const p of approvedPayments) {
+    const amount = p.amounts?.totalAmount || 0;
+    if (amount <= 0) continue;
+
+    if (p.paymentType === "booking") {
+      // Use waterfall allocation
+      let breakdown;
+      if (p.breakdown && Object.keys(p.breakdown).length > 0) {
+        breakdown = p.breakdown;
+      } else {
+        try {
+          breakdown = allocateWaterfall(amount, summary);
+          p.breakdown = breakdown;
+        } catch (e) {
+          // If waterfall fails, fallback to simple distribution
+          breakdown = { registrationFee: 0, securityDeposit: 0, roomRent: 0, messFee: 0, transportFee: 0 };
+        }
+      }
+
+      // Apply the breakdown
+      for (const cat of categories) {
+        const alloc = breakdown[cat] || 0;
+        if (alloc > 0 && summary[cat]) {
+          summary[cat].paid = (summary[cat].paid || 0) + alloc;
+          summary[cat].remaining = Math.max(0, (summary[cat].total || 0) - summary[cat].paid);
+        }
+      }
+    } else {
+      // Final/standard payment to specific category
+      const summaryKey = MAP_PAYMENT_CATEGORY_TO_SUMMARY_KEY[p.category];
+      if (summaryKey && summary[summaryKey]) {
+        summary[summaryKey].paid = (summary[summaryKey].paid || 0) + amount;
+        summary[summaryKey].remaining = Math.max(0, (summary[summaryKey].total || 0) - summary[summaryKey].paid);
+      }
+    }
+  }
+
+  // 3. Recalculate grand total
+  recalculateGrandTotal(summary);
+};
+
+module.exports = { allocateWaterfall, recalculateGrandTotal, reapplyApprovedPayments };

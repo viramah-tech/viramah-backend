@@ -6,6 +6,7 @@ const {
   ValidationError,
   NotFoundError,
 } = require("../utils/errors");
+const { reapplyApprovedPayments } = require("../utils/waterfall");
 
 const DEFAULT_PRICING = {
   tenureMonths: 11,
@@ -198,6 +199,8 @@ const saveRoomSelection = async (user, data) => {
     data.paymentPlan,
     user
   );
+
+  reapplyApprovedPayments(user);
 
   user.onboarding.currentStep = "review";
   await user.save();
