@@ -14,6 +14,10 @@ const start = async () => {
   const { startEmailWorker } = require("./src/utils/emailWorker");
   startEmailWorker();
 
+  // Start daily fine scheduler
+  const { startFineScheduler } = require("./src/utils/fineScheduler");
+  startFineScheduler();
+
   const app = require("./src/app");
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);

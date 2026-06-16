@@ -60,6 +60,9 @@ const compilePaymentTemplate = ({ user, heading, content }) => {
   if (summary.transportFee?.total > 0) {
     items.push({ label: "Transport Fee", total: summary.transportFee.total, paid: summary.transportFee.paid, remaining: summary.transportFee.remaining });
   }
+  if (summary.fines?.total > 0) {
+    items.push({ label: "Fines & Penalties", total: summary.fines.total, paid: summary.fines.paid, remaining: summary.fines.remaining });
+  }
 
   const tableRows = items.map(item => `
     <tr style="border-bottom: 1px solid #F1F5F9;">

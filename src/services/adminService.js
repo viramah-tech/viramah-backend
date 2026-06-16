@@ -17,6 +17,7 @@ const CATEGORY_KEYS = [
   "roomRent",
   "messFee",
   "transportFee",
+  "fines",
 ];
 
 const getUsers = async ({ status, step, search, page = 1, limit = 20 }) => {
@@ -505,6 +506,220 @@ const updateUserDetails = async (userId, userDetails, adminUserId) => {
   return user;
 };
 
+const addFine = async (userId, amount, reason, adminUserId) => {
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+
+  if (typeof amount !== "number" || amount <= 0) {
+    throw new ValidationError("Fine amount must be a positive number");
+  }
+  if (!reason || reason.trim() === "") {
+    throw new ValidationError("Reason is required");
+  }
+
+  const fineId = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString("hex");
+
+  if (!user.finesList) user.finesList = [];
+  user.finesList.push({
+    fineId,
+    amount,
+    reason,
+    date: new Date(),
+    addedBy: adminUserId,
+    type: "manual",
+    isRemoved: false,
+  });
+
+  if (!user.paymentSummary.fines) {
+    user.paymentSummary.fines = { total: 0, paid: 0, remaining: 0 };
+  }
+  user.paymentSummary.fines.total = (user.paymentSummary.fines.total || 0) + amount;
+  user.paymentSummary.fines.remaining = (user.paymentSummary.fines.remaining || 0) + amount;
+
+  recalculateGrandTotal(user.paymentSummary);
+
+  await user.save();
+  logAdminAction("ADD_FINE", adminUserId, userId, { amount, reason, fineId });
+  return user;
+};
+
+const removeFine = async (userId, fineId, reason, adminUserId) => {
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+
+  if (!reason || reason.trim() === "") {
+    throw new ValidationError("Removal reason is required");
+  }
+
+  if (!user.finesList) user.finesList = [];
+  const fine = user.finesList.find((f) => f.fineId === fineId);
+  if (!fine) throw new NotFoundError("Fine not found");
+  if (fine.isRemoved) throw new ValidationError("Fine already removed");
+
+  fine.isRemoved = true;
+  fine.removedBy = adminUserId;
+  fine.removedAt = new Date();
+  fine.removalReason = reason;
+
+  if (user.paymentSummary.fines) {
+    user.paymentSummary.fines.total = Math.max(0, (user.paymentSummary.fines.total || 0) - fine.amount);
+    user.paymentSummary.fines.remaining = Math.max(0, (user.paymentSummary.fines.remaining || 0) - fine.amount);
+  }
+
+  recalculateGrandTotal(user.paymentSummary);
+
+  await user.save();
+  logAdminAction("REMOVE_FINE", adminUserId, userId, { fineId, reason });
+  return user;
+};
+
+const addBulkFines = async (userIds, amount, reason, adminUserId) => {
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    throw new ValidationError("User IDs must be a non-empty array");
+  }
+  if (typeof amount !== "number" || amount <= 0) {
+    throw new ValidationError("Fine amount must be a positive number");
+  }
+  if (!reason || reason.trim() === "") {
+    throw new ValidationError("Reason is required");
+  }
+
+  const results = [];
+  for (const userId of userIds) {
+    try {
+      await addFine(userId, amount, reason, adminUserId);
+      results.push({ userId, success: true });
+    } catch (err) {
+      results.push({ userId, success: false, error: err.message });
+    }
+  }
+  return results;
+};
+
+const getFinesSummary = async () => {
+  const users = await User.find({
+    $or: [
+      { "finesList.0": { $exists: true } },
+      { "paymentSummary.fines.total": { $gt: 0 } }
+    ]
+  }, "basicInfo finesList paymentSummary");
+
+  let totalImposed = 0;
+  let totalActive = 0;
+  let totalCollected = 0;
+  let totalOutstanding = 0;
+  let totalRemoved = 0;
+  
+  const allFines = [];
+
+  for (const user of users) {
+    const fines = user.finesList || [];
+    
+    totalCollected += user.paymentSummary?.fines?.paid || 0;
+    totalOutstanding += user.paymentSummary?.fines?.remaining || 0;
+
+    for (const fine of fines) {
+      if (fine.isRemoved) {
+        totalRemoved += fine.amount;
+      } else {
+        totalImposed += fine.amount;
+        totalActive += fine.amount;
+      }
+
+      allFines.push({
+        fineId: fine.fineId,
+        amount: fine.amount,
+        reason: fine.reason,
+        date: fine.date,
+        addedBy: fine.addedBy,
+        type: fine.type || "manual",
+        isRemoved: fine.isRemoved,
+        removedBy: fine.removedBy,
+        removedAt: fine.removedAt,
+        removalReason: fine.removalReason,
+        student: {
+          userId: user.basicInfo.userId,
+          fullName: user.basicInfo.fullName,
+          email: user.basicInfo.email,
+          phone: user.basicInfo.phone,
+        }
+      });
+    }
+  }
+
+  allFines.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  return {
+    stats: {
+      totalImposed,
+      totalActive,
+      totalCollected,
+      totalOutstanding,
+      totalRemoved,
+      totalCount: allFines.length,
+      activeCount: allFines.filter(f => !f.isRemoved).length,
+      removedCount: allFines.filter(f => f.isRemoved).length,
+    },
+    fines: allFines
+  };
+};
+
+const clearAllFines = async (reason, adminUserId) => {
+  if (!reason || reason.trim() === "") {
+    throw new ValidationError("Reason is required to clear all fines");
+  }
+
+  // Find all users who have active (non-removed) fines
+  const users = await User.find({
+    "finesList": { $elemMatch: { isRemoved: false } }
+  });
+
+  let totalFinesCleared = 0;
+  let studentsAffected = 0;
+
+  for (const user of users) {
+    let userFinesCleared = 0;
+    let userAmountCleared = 0;
+
+    for (const fine of user.finesList) {
+      if (!fine.isRemoved) {
+        fine.isRemoved = true;
+        fine.removedBy = adminUserId;
+        fine.removedAt = new Date();
+        fine.removalReason = reason;
+        userFinesCleared++;
+        userAmountCleared += fine.amount;
+      }
+    }
+
+    if (userFinesCleared > 0) {
+      if (user.paymentSummary.fines) {
+        user.paymentSummary.fines.total = Math.max(0, (user.paymentSummary.fines.total || 0) - userAmountCleared);
+        user.paymentSummary.fines.remaining = Math.max(0, (user.paymentSummary.fines.remaining || 0) - userAmountCleared);
+      }
+      recalculateGrandTotal(user.paymentSummary);
+      await user.save();
+      
+      logAdminAction("CLEAR_ALL_FINES_USER", adminUserId, user.basicInfo.userId, { 
+        finesCount: userFinesCleared, 
+        amount: userAmountCleared, 
+        reason 
+      });
+
+      totalFinesCleared += userFinesCleared;
+      studentsAffected++;
+    }
+  }
+
+  logAdminAction("CLEAR_ALL_FINES_GLOBAL", adminUserId, null, { 
+    totalFinesCleared, 
+    studentsAffected, 
+    reason 
+  });
+
+  return { totalFinesCleared, studentsAffected };
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -522,4 +737,10 @@ module.exports = {
   updateRoomRentDiscounts,
   deleteUser,
   updateUserDetails,
+  addFine,
+  removeFine,
+  addBulkFines,
+  getFinesSummary,
+  clearAllFines,
 };
+

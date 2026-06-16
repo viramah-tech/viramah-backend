@@ -15,6 +15,7 @@ const CATEGORY_MAP = {
   mess: "messFee",
   transport: "transportFee",
   security_deposit: "securityDeposit",
+  fine: "fines",
 };
 
 const ALLOWED_PAYMENT_METHODS = ["upi", "bank_transfer", "cash"];
@@ -197,7 +198,7 @@ const submitBookingPayment = async (user, data) => {
     transactionId: data.transactionId,
     proof: { url: data.proofUrl, uploadedAt: new Date() },
     amounts: { totalAmount: amount },
-    breakdown: { registrationFee: 0, securityDeposit: 0, roomRent: 0, messFee: 0, transportFee: 0 },
+    breakdown: { registrationFee: 0, securityDeposit: 0, roomRent: 0, messFee: 0, transportFee: 0, fines: 0 },
     status: "pending",
     signature: paymentSignature,
     paidAt: new Date(),
@@ -265,7 +266,7 @@ const submitFinalPayment = async (user, data) => {
     }
     paymentType = amount === categoryRemaining ? "full" : "half";
   }
-  const breakdown = { registrationFee: 0, securityDeposit: 0, roomRent: 0, messFee: 0, transportFee: 0 };
+  const breakdown = { registrationFee: 0, securityDeposit: 0, roomRent: 0, messFee: 0, transportFee: 0, fines: 0 };
   breakdown[summaryKey] = amount;
 
   const paymentId = uuidv4();

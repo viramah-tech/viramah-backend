@@ -47,6 +47,7 @@ const sendPaymentReceiptEmail = async (user, payment) => {
     ["Mess Fee", breakdown.messFee],
     ["Transport Fee", breakdown.transportFee],
     ["Registration Fee", breakdown.registrationFee],
+    ["Fines & Penalties", breakdown.fines],
   ]
     .filter(([, val]) => val && val > 0)
     .map(

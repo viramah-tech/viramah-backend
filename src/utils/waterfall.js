@@ -77,7 +77,7 @@ const allocateWaterfall = (amount, summary) => {
  */
 const recalculateGrandTotal = (summary) => {
   if (!summary) return;
-  const categories = ["registrationFee", "securityDeposit", "roomRent", "messFee", "transportFee"];
+  const categories = ["registrationFee", "securityDeposit", "roomRent", "messFee", "transportFee", "fines"];
   
   let totalSum = 0;
   let paidSum = 0;
@@ -107,13 +107,14 @@ const MAP_PAYMENT_CATEGORY_TO_SUMMARY_KEY = {
   transport: "transportFee",
   security_deposit: "securityDeposit",
   registration_fee: "registrationFee",
+  fine: "fines",
 };
 
 const reapplyApprovedPayments = (user) => {
   const summary = user.paymentSummary;
   if (!summary) return;
 
-  const categories = ["registrationFee", "securityDeposit", "roomRent", "messFee", "transportFee"];
+  const categories = ["registrationFee", "securityDeposit", "roomRent", "messFee", "transportFee", "fines"];
 
   // 1. Reset all paid and remaining values to total (starting from scratch)
   for (const cat of categories) {

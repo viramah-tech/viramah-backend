@@ -36,13 +36,16 @@ router.use((req, res, next) => {
   const isPaymentAction = req.method === "PUT" && 
     req.path.startsWith("/payments/") && 
     (req.path.endsWith("/approve") || req.path.endsWith("/reject"));
+
+  // Allow accountant and admin to manage fines (POST /users/:userId/fines, DELETE /users/:userId/fines/:fineId, POST /fines/apply-daily)
+  const isFineAction = req.path.includes("/fines") || req.path.endsWith("/fines");
   
   let allowedRoles = ["admin"];
   if (isReadOnlyRoute) {
     allowedRoles = ["admin", "sales_member", "accountant"];
   } else if (isSalesRoomAction || isSalesNoteAction) {
     allowedRoles = ["admin", "sales_member"];
-  } else if (isPaymentAction) {
+  } else if (isPaymentAction || isFineAction) {
     allowedRoles = ["admin", "accountant"];
   }
 
@@ -767,5 +770,105 @@ router.delete("/s3/objects", roleGuard("admin"), validate(Joi.object({ key: Joi.
     next(err);
   }
 });
+
+router.post(
+  "/users/:userId/fines",
+  validate(Joi.object({
+    amount: Joi.number().integer().min(1).required(),
+    reason: Joi.string().min(3).max(500).required()
+  })),
+  async (req, res, next) => {
+    try {
+      const result = await adminService.addFine(
+        req.params.userId,
+        req.validatedBody.amount,
+        req.validatedBody.reason,
+        req.user.basicInfo.userId
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.delete(
+  "/users/:userId/fines/:fineId",
+  validate(Joi.object({
+    reason: Joi.string().min(3).max(500).required()
+  })),
+  async (req, res, next) => {
+    try {
+      const result = await adminService.removeFine(
+        req.params.userId,
+        req.params.fineId,
+        req.validatedBody.reason,
+        req.user.basicInfo.userId
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get("/fines", async (req, res, next) => {
+  try {
+    const result = await adminService.getFinesSummary();
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/fines/apply-daily", async (req, res, next) => {
+  try {
+    const fineService = require("../services/fineService");
+    const count = await fineService.applyDailyFines();
+    res.json({ success: true, message: `Applied daily fines to ${count} users` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post(
+  "/fines/bulk",
+  validate(Joi.object({
+    userIds: Joi.array().items(Joi.string()).min(1).required(),
+    amount: Joi.number().integer().min(1).required(),
+    reason: Joi.string().min(3).max(500).required()
+  })),
+  async (req, res, next) => {
+    try {
+      const result = await adminService.addBulkFines(
+        req.validatedBody.userIds,
+        req.validatedBody.amount,
+        req.validatedBody.reason,
+        req.user.basicInfo.userId
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/fines/clear-all",
+  validate(Joi.object({
+    reason: Joi.string().min(3).max(500).required()
+  })),
+  async (req, res, next) => {
+    try {
+      const result = await adminService.clearAllFines(
+        req.validatedBody.reason,
+        req.user.basicInfo.userId
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 module.exports = router;

@@ -116,6 +116,7 @@ const paymentBreakdownSchema = new Schema(
     roomRent: { type: Number, default: 0 },
     messFee: { type: Number, default: 0 },
     transportFee: { type: Number, default: 0 },
+    fines: { type: Number, default: 0 },
   },
   { _id: false }
 );
@@ -145,7 +146,7 @@ const paymentRecordSchema = new Schema(
     },
     category: {
       type: String,
-      enum: ["booking", "security_deposit", "room_rent", "mess", "transport", null],
+      enum: ["booking", "security_deposit", "room_rent", "mess", "transport", "fine", null],
       default: null,
     },
     method: {
@@ -201,6 +202,7 @@ const paymentSummarySchema = new Schema(
     roomRent: { type: roomRentLedgerSchema, default: () => ({}) },
     messFee: { type: ledgerEntrySchema, default: () => ({}) },
     transportFee: { type: ledgerEntrySchema, default: () => ({}) },
+    fines: { type: ledgerEntrySchema, default: () => ({}) },
     grandTotal: { type: ledgerEntrySchema, default: () => ({}) },
     isFullyPaid: { type: Boolean, default: false },
   },
@@ -287,6 +289,23 @@ const userSchema = new Schema(
       enum: ["pending", "active", "suspended", "blocked"],
       default: "pending",
       index: true,
+    },
+    finesList: {
+      type: [
+        {
+          fineId: { type: String, required: true },
+          amount: { type: Number, required: true },
+          reason: { type: String, required: true },
+          date: { type: Date, default: Date.now },
+          addedBy: { type: String },
+          isRemoved: { type: Boolean, default: false },
+          removedBy: { type: String },
+          removedAt: { type: Date },
+          removalReason: { type: String },
+          type: { type: String, enum: ["manual", "daily"], default: "manual" },
+        }
+      ],
+      default: []
     },
   },
   { timestamps: true }
