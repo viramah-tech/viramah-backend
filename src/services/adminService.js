@@ -58,7 +58,7 @@ const getUserById = async (userId) => {
   return user;
 };
 
-const updateRoomRentDiscounts = async (userId, fullPaymentDiscountPct, halfPaymentDiscountPct, customRackRate) => {
+const updateRoomRentDiscounts = async (userId, fullPaymentDiscountPct, halfPaymentDiscountPct, customRackRate, appliedRoomRent) => {
   const user = await User.findOne({ "basicInfo.userId": userId }).populate("roomDetails.roomType");
   if (!user) throw new NotFoundError("User not found");
 
@@ -68,36 +68,61 @@ const updateRoomRentDiscounts = async (userId, fullPaymentDiscountPct, halfPayme
   if (typeof halfPaymentDiscountPct === "number") {
     user.paymentSummary.roomRent.halfPaymentDiscountPct = halfPaymentDiscountPct;
   }
-  if (typeof customRackRate === "number") {
-    user.paymentSummary.roomRent.customRackRate = customRackRate;
-  }
 
-  // Recalculate if user has already done room selection and selected a plan
   const plan = user.paymentSummary?.roomRent?.selectedPlan;
-  if (plan === "full" || plan === "half") {
-    const pricing = await PricingConfig.findOne();
-    const tenure = pricing?.tenureMonths || 11;
-    const roomPrice = user.roomDetails?.roomType?.basePrice || 0;
-    
-    // Use customRackRate if provided, otherwise fallback to standard calculation
-    const rawRoomRent = typeof user.paymentSummary.roomRent.customRackRate === "number" 
-      ? user.paymentSummary.roomRent.customRackRate 
-      : (roomPrice * tenure);
 
-    const discountPct = plan === "full" ? user.paymentSummary.roomRent.fullPaymentDiscountPct : user.paymentSummary.roomRent.halfPaymentDiscountPct;
+  if (typeof appliedRoomRent === "number") {
+    const activeFullPct = typeof fullPaymentDiscountPct === "number" ? fullPaymentDiscountPct : (user.paymentSummary.roomRent.fullPaymentDiscountPct ?? 40);
+    const activeHalfPct = typeof halfPaymentDiscountPct === "number" ? halfPaymentDiscountPct : (user.paymentSummary.roomRent.halfPaymentDiscountPct ?? 25);
     
-    const newDiscountValue = Math.round(rawRoomRent * (discountPct / 100));
+    let discountPct = 0;
+    if (plan === "full") {
+      discountPct = activeFullPct;
+    } else if (plan === "half") {
+      discountPct = activeHalfPct;
+    }
 
-    user.paymentSummary.roomRent.appliedDiscountValue = newDiscountValue;
-    
-    const newTotal = rawRoomRent - newDiscountValue;
-    user.paymentSummary.roomRent.total = newTotal;
+    let newBaseRent = appliedRoomRent;
+    if (discountPct > 0 && discountPct < 100) {
+      newBaseRent = Math.round(appliedRoomRent / (1 - discountPct / 100));
+    }
+
+    user.paymentSummary.roomRent.customRackRate = newBaseRent;
+    user.paymentSummary.roomRent.appliedDiscountValue = newBaseRent - appliedRoomRent;
+    user.paymentSummary.roomRent.total = appliedRoomRent;
     
     const roomRentPaid = user.paymentSummary.roomRent.paid || 0;
-    user.paymentSummary.roomRent.remaining = Math.max(0, newTotal - roomRentPaid);
+    user.paymentSummary.roomRent.remaining = Math.max(0, appliedRoomRent - roomRentPaid);
 
-    // Dynamic grandTotal recalculation to avoid desync
     recalculateGrandTotal(user.paymentSummary);
+  } else {
+    if (typeof customRackRate === "number") {
+      user.paymentSummary.roomRent.customRackRate = customRackRate;
+    }
+
+    if (plan === "full" || plan === "half") {
+      const pricing = await PricingConfig.findOne();
+      const tenure = pricing?.tenureMonths || 11;
+      const roomPrice = user.roomDetails?.roomType?.basePrice || 0;
+      
+      const rawRoomRent = typeof user.paymentSummary.roomRent.customRackRate === "number" 
+        ? user.paymentSummary.roomRent.customRackRate 
+        : (roomPrice * tenure);
+
+      const discountPct = plan === "full" ? user.paymentSummary.roomRent.fullPaymentDiscountPct : user.paymentSummary.roomRent.halfPaymentDiscountPct;
+      
+      const newDiscountValue = Math.round(rawRoomRent * (discountPct / 100));
+
+      user.paymentSummary.roomRent.appliedDiscountValue = newDiscountValue;
+      
+      const newTotal = rawRoomRent - newDiscountValue;
+      user.paymentSummary.roomRent.total = newTotal;
+      
+      const roomRentPaid = user.paymentSummary.roomRent.paid || 0;
+      user.paymentSummary.roomRent.remaining = Math.max(0, newTotal - roomRentPaid);
+
+      recalculateGrandTotal(user.paymentSummary);
+    }
   }
 
   await user.save();

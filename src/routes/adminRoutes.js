@@ -228,16 +228,18 @@ router.put(
       fullPaymentDiscountPct: Joi.number().min(0).max(100),
       halfPaymentDiscountPct: Joi.number().min(0).max(100),
       customRackRate: Joi.number().min(0),
+      appliedRoomRent: Joi.number().min(0),
     }).min(1)
   ),
   async (req, res, next) => {
     try {
-      const { fullPaymentDiscountPct, halfPaymentDiscountPct, customRackRate } = req.validatedBody;
+      const { fullPaymentDiscountPct, halfPaymentDiscountPct, customRackRate, appliedRoomRent } = req.validatedBody;
       const roomRent = await adminService.updateRoomRentDiscounts(
         req.params.userId,
         fullPaymentDiscountPct,
         halfPaymentDiscountPct,
-        customRackRate
+        customRackRate,
+        appliedRoomRent
       );
       res.json({ success: true, data: { roomRent } });
     } catch (err) {
