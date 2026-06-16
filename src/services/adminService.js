@@ -667,6 +667,7 @@ const getFinesSummary = async () => {
           fullName: user.basicInfo.fullName,
           email: user.basicInfo.email,
           phone: user.basicInfo.phone,
+          finesLedger: user.paymentSummary?.fines || { total: 0, paid: 0, remaining: 0 }
         }
       });
     }
