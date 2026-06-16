@@ -43,7 +43,7 @@ const compilePaymentTemplate = ({ user, heading, content }) => {
   const roomRent = summary.roomRent || { total: 0, paid: 0, remaining: 0 };
   const deposit = summary.securityDeposit || { total: 0, paid: 0, remaining: 0 };
   const registration = summary.registrationFee || { total: 0, paid: 0, remaining: 0 };
-  const deadlineDate = user.paymentDeadline?.expiresAt ? formatDate(user.paymentDeadline.expiresAt) : "N/A";
+  const deadlineDate = "11 June";
 
   const customMsgHtml = content ? `<p style="color: #334155; font-size: 15px; line-height: 1.6; margin-bottom: 24px;">${content.replace(/\n/g, "<br/>")}</p>` : "";
 
@@ -83,6 +83,9 @@ const compilePaymentTemplate = ({ user, heading, content }) => {
     <div style="background-color: #FFFbeb; border: 1px solid #FDE68A; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
       <p style="margin: 0; color: #92400E; font-size: 14px; font-weight: 600; line-height: 1.5;">
         ⚠️ Payment Due Date: ${deadlineDate}
+      </p>
+      <p style="margin: 4px 0 0; color: #78350F; font-size: 13px; line-height: 1.4;">
+        Note: A fine of ₹100 per day will be applied on outstanding balances after the due date.
       </p>
     </div>
 
