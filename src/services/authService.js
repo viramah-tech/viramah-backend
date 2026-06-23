@@ -72,6 +72,24 @@ const login = async ({ email, password }) => {
     };
   }
 
+  // Accountant environment bypass
+  if (
+    process.env.ACCOUNTANT_EMAIL &&
+    normalizedEmail === process.env.ACCOUNTANT_EMAIL.toLowerCase().trim() &&
+    password === process.env.ACCOUNTANT_PASSWORD
+  ) {
+    return {
+      basicInfo: {
+        userId: "ACCOUNTANT_SYSTEM",
+        fullName: "Viramah Accountant",
+        email: normalizedEmail,
+      },
+      role: "accountant",
+      accountStatus: "active",
+      onboarding: { currentStep: "completed" },
+    };
+  }
+
   let user = await User.findOne({ "basicInfo.email": normalizedEmail });
   if (!user) {
     const SalesAgent = require("../models/SalesAgent");
