@@ -814,6 +814,25 @@ router.delete(
   }
 );
 
+router.delete(
+  "/users/:userId/fines/all",
+  validate(Joi.object({
+    reason: Joi.string().min(3).max(500).required()
+  })),
+  async (req, res, next) => {
+    try {
+      const result = await adminService.removeAllFines(
+        req.params.userId,
+        req.validatedBody.reason,
+        req.user.basicInfo.userId
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.get("/fines", async (req, res, next) => {
   try {
     const result = await adminService.getFinesSummary();

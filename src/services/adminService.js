@@ -598,6 +598,48 @@ const removeFine = async (userId, fineId, reason, adminUserId) => {
   return user;
 };
 
+const removeAllFines = async (userId, reason, adminUserId) => {
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+
+  if (!reason || reason.trim() === "") {
+    throw new ValidationError("Removal reason is required");
+  }
+
+  if (!user.finesList || user.finesList.length === 0) {
+    throw new ValidationError("No fines found for this user");
+  }
+
+  let removedAmount = 0;
+  let linesAffected = 0;
+
+  user.finesList.forEach((fine) => {
+    if (!fine.isRemoved) {
+      fine.isRemoved = true;
+      fine.removedBy = adminUserId;
+      fine.removedAt = new Date();
+      fine.removalReason = reason;
+      removedAmount += fine.amount;
+      linesAffected++;
+    }
+  });
+
+  if (linesAffected === 0) {
+    throw new ValidationError("No active fines to remove");
+  }
+
+  if (user.paymentSummary.fines) {
+    user.paymentSummary.fines.total = Math.max(0, (user.paymentSummary.fines.total || 0) - removedAmount);
+    user.paymentSummary.fines.remaining = Math.max(0, (user.paymentSummary.fines.remaining || 0) - removedAmount);
+  }
+
+  recalculateGrandTotal(user.paymentSummary);
+
+  await user.save();
+  logAdminAction("REMOVE_ALL_FINES", adminUserId, userId, { reason, removedAmount, linesAffected });
+  return user;
+};
+
 const addBulkFines = async (userIds, amount, reason, adminUserId) => {
   if (!Array.isArray(userIds) || userIds.length === 0) {
     throw new ValidationError("User IDs must be a non-empty array");
@@ -765,6 +807,7 @@ module.exports = {
   updateUserDetails,
   addFine,
   removeFine,
+  removeAllFines,
   addBulkFines,
   getFinesSummary,
   clearAllFines,
