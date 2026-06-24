@@ -73,21 +73,21 @@ const login = async ({ email, password }) => {
   }
 
   // Accountant environment bypass
-  if (
-    process.env.ACCOUNTANT_EMAIL &&
-    normalizedEmail === process.env.ACCOUNTANT_EMAIL.toLowerCase().trim() &&
-    password === process.env.ACCOUNTANT_PASSWORD
-  ) {
-    return {
-      basicInfo: {
-        userId: "ACCOUNTANT_SYSTEM",
-        fullName: "Viramah Accountant",
-        email: normalizedEmail,
-      },
-      role: "accountant",
-      accountStatus: "active",
-      onboarding: { currentStep: "completed" },
-    };
+  if (process.env.ACCOUNTANT_EMAIL && normalizedEmail === process.env.ACCOUNTANT_EMAIL.toLowerCase().trim()) {
+    if (password === process.env.ACCOUNTANT_PASSWORD) {
+      return {
+        basicInfo: {
+          userId: "ACCOUNTANT_SYSTEM",
+          fullName: "Viramah Accountant",
+          email: normalizedEmail,
+        },
+        role: "accountant",
+        accountStatus: "active",
+        onboarding: { currentStep: "completed" },
+      };
+    } else {
+      throw new AuthError("Invalid email or password");
+    }
   }
 
   let user = await User.findOne({ "basicInfo.email": normalizedEmail });
@@ -142,6 +142,20 @@ const getMe = async (userId) => {
         email: process.env.ADMIN_EMAIL || "admin@viramah.com",
       },
       role: "admin",
+      accountStatus: "active",
+      onboarding: { currentStep: "completed" },
+    };
+  }
+
+  // Accountant environment bypass
+  if (userId === "ACCOUNTANT_SYSTEM") {
+    return {
+      basicInfo: {
+        userId: "ACCOUNTANT_SYSTEM",
+        fullName: "Viramah Accountant",
+        email: process.env.ACCOUNTANT_EMAIL || "accountant@viramah.com",
+      },
+      role: "accountant",
       accountStatus: "active",
       onboarding: { currentStep: "completed" },
     };

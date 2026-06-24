@@ -21,6 +21,20 @@ const auth = async (req, res, next) => {
       return next();
     }
 
+    if (req.session.userId === "ACCOUNTANT_SYSTEM") {
+      req.user = {
+        basicInfo: {
+          userId: "ACCOUNTANT_SYSTEM",
+          fullName: "Viramah Accountant",
+          email: process.env.ACCOUNTANT_EMAIL || "accountant@viramah.com",
+        },
+        role: "accountant",
+        accountStatus: "active",
+        onboarding: { currentStep: "completed" },
+      };
+      return next();
+    }
+
     let user = await User.findOne({ "basicInfo.userId": req.session.userId });
     if (!user) {
       const SalesAgent = require("../models/SalesAgent");
