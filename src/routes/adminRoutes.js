@@ -794,16 +794,17 @@ router.post(
   }
 );
 
+// IMPORTANT: /fines/all must be registered BEFORE /fines/:fineId
+// otherwise Express matches "all" as a :fineId parameter.
 router.delete(
-  "/users/:userId/fines/:fineId",
+  "/users/:userId/fines/all",
   validate(Joi.object({
     reason: Joi.string().min(3).max(500).required()
   })),
   async (req, res, next) => {
     try {
-      const result = await adminService.removeFine(
+      const result = await adminService.removeAllFines(
         req.params.userId,
-        req.params.fineId,
         req.validatedBody.reason,
         req.user.basicInfo.userId
       );
@@ -815,14 +816,15 @@ router.delete(
 );
 
 router.delete(
-  "/users/:userId/fines/all",
+  "/users/:userId/fines/:fineId",
   validate(Joi.object({
     reason: Joi.string().min(3).max(500).required()
   })),
   async (req, res, next) => {
     try {
-      const result = await adminService.removeAllFines(
+      const result = await adminService.removeFine(
         req.params.userId,
+        req.params.fineId,
         req.validatedBody.reason,
         req.user.basicInfo.userId
       );

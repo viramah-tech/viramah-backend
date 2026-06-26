@@ -8,9 +8,7 @@ const createSessionMiddleware = (mongoUrl) => {
   const sessionMongoUrl = mongoUrl || process.env.MONGODB_URI;
   // Bulletproof production check: if the origins include the live domains, force production settings
   // regardless of what NODE_ENV says. This prevents failure if NODE_ENV=development is left in EC2 env.
-  const isProduction = 
-    process.env.NODE_ENV === "production" || 
-    (process.env.CORS_ORIGIN || "").includes("viramahstay.com");
+  const isProduction = process.env.NODE_ENV === "production";
   
   // Connect-Mongo requires the same TLS certificate logic as Mongoose to connect to AWS DocumentDB in production.
   const certPath = path.join(__dirname, "../../global-bundle.pem");

@@ -350,7 +350,9 @@ const rejectPayment = async (userId, paymentId, adminUserId, reason) => {
 
   const payment = user.paymentDetails.find((p) => p.paymentId === paymentId);
   if (!payment) throw new NotFoundError("Payment not found");
-  if (payment.status !== "pending") {
+  
+  const wasApproved = payment.status === "approved";
+  if (payment.status !== "pending" && payment.status !== "approved") {
     throw new ConflictError(`Payment already ${payment.status}`);
   }
 
@@ -362,6 +364,49 @@ const rejectPayment = async (userId, paymentId, adminUserId, reason) => {
     .createHmac("sha256", process.env.PAYMENT_SIGNATURE_SECRET || "dev-secret")
     .update(`${adminUserId}:${paymentId}:REJECTED:${Date.now()}`)
     .digest("hex");
+
+  if (wasApproved) {
+    const { reapplyApprovedPayments } = require("../utils/waterfall");
+    
+    // Recalculate summaries by reapplying only the remaining approved payments
+    reapplyApprovedPayments(user);
+
+    // Revert onboarding status if necessary
+    const hasApprovedBooking = user.paymentDetails.some(
+      (p) => p.paymentType === "booking" && p.status === "approved"
+    );
+
+    if (!hasApprovedBooking) {
+      user.onboarding.currentStep = "booking_payment";
+      user.paymentDeadline = undefined;
+      user.onboarding.completedAt = undefined;
+      user.accountStatus = "pending";
+    } else {
+      const isFullyPaidNow = user.paymentSummary?.isFullyPaid;
+      
+      // Also check half plan target condition
+      let halfPlanTargetMet = false;
+      if (user.paymentSummary?.roomRent?.selectedPlan === "half") {
+        const ps = user.paymentSummary;
+        const discountedRoomRent = ps.roomRent.total - (ps.roomRent.appliedDiscountValue || 0);
+        const sixtyPctTarget = Math.round(discountedRoomRent * 0.60);
+
+        const roomRentOk = ps.roomRent.paid >= sixtyPctTarget;
+        const securityOk = ps.securityDeposit.remaining <= 0;
+        const registrationOk = ps.registrationFee.remaining <= 0;
+        const messOk = ps.messFee.total === 0 || ps.messFee.remaining <= 0;
+        const transportOk = ps.transportFee.total === 0 || ps.transportFee.remaining <= 0;
+        
+        halfPlanTargetMet = roomRentOk && securityOk && registrationOk && messOk && transportOk;
+      }
+      
+      if (!isFullyPaidNow && !halfPlanTargetMet) {
+        user.onboarding.currentStep = "final_payment";
+        user.onboarding.completedAt = undefined;
+        user.accountStatus = "pending";
+      }
+    }
+  }
   
   await user.save();
   
@@ -390,8 +435,9 @@ const getDashboard = async () => {
     ]),
     User.countDocuments({ "paymentDetails.status": "pending" }),
     User.aggregate([
-      { $match: { role: "user" } },
-      { $group: { _id: null, total: { $sum: "$paymentSummary.grandTotal.paid" } } },
+      { $unwind: "$paymentDetails" },
+      { $match: { "paymentDetails.status": "approved" } },
+      { $group: { _id: null, total: { $sum: "$paymentDetails.amounts.totalAmount" } } },
     ]),
     RoomType.find({ isActive: true }).lean().catch(() => []),
   ]);
