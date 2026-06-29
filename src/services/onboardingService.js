@@ -7,6 +7,7 @@ const {
   NotFoundError,
 } = require("../utils/errors");
 const { reapplyApprovedPayments } = require("../utils/waterfall");
+const { reconcileAccountState } = require("../utils/accountState");
 
 const DEFAULT_PRICING = {
   tenureMonths: 11,
@@ -28,6 +29,7 @@ const getOrCreatePricingConfig = async () => {
 
 const saveCompliance = async (user, data) => {
   const now = new Date();
+  if (!user.compliance) user.compliance = {};
   user.compliance.termsAccepted = !!data.termsAccepted;
   user.compliance.termsAcceptedAt = data.termsAccepted ? now : undefined;
   user.compliance.termsVersion = data.termsVersion || "1.0";
@@ -46,6 +48,8 @@ const saveCompliance = async (user, data) => {
 };
 
 const savePersonalDetails = async (user, data, files = {}) => {
+  if (!user.basicInfo) user.basicInfo = {};
+  if (!user.userIdProof) user.userIdProof = {};
   user.basicInfo.fullName = data.fullName;
   user.basicInfo.dateOfBirth = data.dateOfBirth;
   user.basicInfo.gender = data.gender;
@@ -56,7 +60,6 @@ const savePersonalDetails = async (user, data, files = {}) => {
     user.profilePhoto = { url, uploadedAt: new Date() };
   }
 
-  if (!user.userIdProof) user.userIdProof = {};
   user.userIdProof.idType = data.idType;
   user.userIdProof.idNumber = data.idNumber;
 
@@ -84,12 +87,12 @@ const savePersonalDetails = async (user, data, files = {}) => {
 
 const saveGuardianDetails = async (user, data, files = {}) => {
   if (!user.guardianDetails) user.guardianDetails = {};
+  if (!user.guardianDetails.idProof) user.guardianDetails.idProof = {};
   user.guardianDetails.fullName = data.fullName;
   user.guardianDetails.relation = data.relation;
   user.guardianDetails.phone = data.phone;
   user.guardianDetails.alternatePhone = data.alternatePhone;
 
-  if (!user.guardianDetails.idProof) user.guardianDetails.idProof = {};
   user.guardianDetails.idProof.idType = data.idType;
   user.guardianDetails.idProof.idNumber = data.idNumber;
 
@@ -180,6 +183,9 @@ const computePaymentSummary = (roomType, pricing, includeMess, includeTransport,
 };
 
 const saveRoomSelection = async (user, data) => {
+  if (!user.roomDetails) user.roomDetails = {};
+  if (!user.paymentSummary) user.paymentSummary = {};
+
   const roomType = await RoomType.findById(data.roomTypeId);
   if (!roomType || !roomType.isActive) {
     throw new NotFoundError("Room type not found");
@@ -221,6 +227,10 @@ const confirmReview = async (user) => {
   // Re-fetch to guarantee a Mongoose document (req.user can lose its prototype).
   const freshUser = await User.findById(user._id);
   if (!freshUser) throw new NotFoundError("User not found");
+  if (!freshUser.onboarding) freshUser.onboarding = {};
+  freshUser.onboarding.currentStep = "booking_payment";
+  const reconciledState = reconcileAccountState(freshUser);
+  freshUser.accountStatus = reconciledState.accountStatus;
   freshUser.onboarding.currentStep = "booking_payment";
   await freshUser.save();
   return { nextStep: "booking_payment" };

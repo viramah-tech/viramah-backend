@@ -5,6 +5,7 @@ const roleGuard = require("../middleware/roleGuard");
 const validate = require("../middleware/validate");
 const adminService = require("../services/adminService");
 const { logAdminAction } = require("../utils/auditLogger");
+const { collectReferencedS3KeysFromUsers, splitS3KeysByReference, getS3ErrorMessage } = require("../utils/s3Cleanup");
 
 const router = express.Router();
 
@@ -721,6 +722,86 @@ router.get("/s3/objects", roleGuard("admin"), async (req, res, next) => {
     }
 
     res.json({ success: true, data: { objects } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/s3/cleanup-orphans", roleGuard("admin"), async (req, res, next) => {
+  try {
+    const { DeleteObjectCommand, ListObjectsV2Command } = require("@aws-sdk/client-s3");
+    const { s3Client, bucketName } = require("../config/s3");
+    const User = require("../models/User");
+    const previewOnly = req.body?.previewOnly === true || req.query?.previewOnly === "true";
+
+    if (!bucketName) {
+      return res.status(400).json({ success: false, message: "S3 Bucket is not configured" });
+    }
+
+    const users = await User.find({}).lean();
+    const referencedKeys = collectReferencedS3KeysFromUsers(users);
+
+    let objectKeys = [];
+    let continuationToken;
+    try {
+      do {
+        const response = await s3Client.send(new ListObjectsV2Command({
+          Bucket: bucketName,
+          ContinuationToken: continuationToken,
+          MaxKeys: 1000,
+        }));
+        objectKeys = objectKeys.concat((response.Contents || []).map((item) => item.Key));
+        continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+      } while (continuationToken);
+    } catch (s3Error) {
+      return res.status(502).json({
+        success: false,
+        message: getS3ErrorMessage(s3Error),
+        error: { message: getS3ErrorMessage(s3Error), code: "S3_LIST_FAILED" },
+      });
+    }
+
+    const { referencedInBucket, orphaned } = splitS3KeysByReference(objectKeys, referencedKeys);
+    const orphanedKeys = orphaned;
+    const deletedKeys = [];
+
+    if (!previewOnly) {
+      try {
+        for (const key of orphanedKeys) {
+          await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: key }));
+          deletedKeys.push(key);
+        }
+      } catch (s3Error) {
+        return res.status(502).json({
+          success: false,
+          message: getS3ErrorMessage(s3Error),
+          error: { message: getS3ErrorMessage(s3Error), code: "S3_DELETE_FAILED" },
+        });
+      }
+    }
+
+    const count = previewOnly ? orphanedKeys.length : deletedKeys.length;
+
+    await logAdminAction("S3 orphan cleanup", req.user.basicInfo.userId, null, {
+      previewOnly,
+      orphanCount: orphanedKeys.length,
+      deletedCount: deletedKeys.length,
+      referencedCount: referencedInBucket.length,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        deletedKeys: previewOnly ? [] : deletedKeys,
+        count,
+        previewOnly,
+        orphanedKeys,
+        orphanCount: orphanedKeys.length,
+        deletedCount: deletedKeys.length,
+        referencedCount: referencedInBucket.length,
+        skippedReferencedCount: referencedInBucket.length,
+      },
+    });
   } catch (err) {
     next(err);
   }

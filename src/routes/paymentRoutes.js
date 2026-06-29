@@ -10,7 +10,9 @@ const router = express.Router();
 const bookingSchema = Joi.object({
   method: Joi.string().valid("upi", "bank_transfer", "cash").required(),
   transactionId: Joi.string().min(3).max(80).required(),
-  proofUrl: Joi.string().uri().required(),
+  proofUrl: Joi.alternatives()
+    .try(Joi.string().uri(), Joi.string().pattern(/^data:/i))
+    .required(),
   amount: Joi.number().min(1).required(),
 });
 
@@ -18,7 +20,9 @@ const finalSchema = Joi.object({
   category: Joi.string().valid("room_rent", "mess", "transport", "security_deposit").required(),
   method: Joi.string().valid("upi", "bank_transfer", "cash").required(),
   transactionId: Joi.string().min(3).max(80).required(),
-  proofUrl: Joi.string().uri().required(),
+  proofUrl: Joi.alternatives()
+    .try(Joi.string().uri(), Joi.string().pattern(/^data:/i))
+    .required(),
   amount: Joi.number().min(1).required(),
   planType: Joi.string().valid("full", "half").optional(),
 });

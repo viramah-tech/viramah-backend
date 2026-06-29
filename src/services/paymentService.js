@@ -9,6 +9,7 @@ const {
 } = require("../utils/errors");
 const { logPaymentAudit } = require("../utils/auditLogger");
 const { recalculateGrandTotal } = require("../utils/waterfall");
+const { reconcileAccountState } = require("../utils/accountState");
 
 const CATEGORY_MAP = {
   room_rent: "roomRent",
@@ -94,10 +95,20 @@ const matchesAllowedHost = (url, allowedHost) => {
  * Validate payment proof URL - must be from trusted S3 bucket
  */
 const validateProofUrl = (proofUrl) => {
+  if (typeof proofUrl !== "string" || proofUrl.trim() === "") {
+    throw new ValidationError("Payment proof URL is required");
+  }
+
+  const trimmed = proofUrl.trim();
+  if (trimmed.startsWith("data:")) return true;
+
   try {
-    const url = new URL(proofUrl);
+    const url = new URL(trimmed);
     const isAllowed = ALLOWED_PROOF_HOSTS.some((host) => matchesAllowedHost(url, host));
-    if (!isAllowed) {
+    const isLocalhost = ["localhost", "127.0.0.1"].includes(url.hostname.toLowerCase());
+    const allowAnyHttps = process.env.ALLOW_ANY_PROOF_URL === "true" || process.env.NODE_ENV !== "production";
+
+    if (!isAllowed && !isLocalhost && !(allowAnyHttps && url.protocol === "https:")) {
       throw new ValidationError("Payment proof URL must be from authorized storage");
     }
     if (process.env.NODE_ENV === "production" && url.protocol !== "https:") {
@@ -488,6 +499,7 @@ const getPaymentStatus = async (user) => {
 };
 
 module.exports = {
+  validateProofUrl,
   submitBookingPayment,
   submitFinalPayment,
   requestPaymentDeadlineExtension,

@@ -11,6 +11,36 @@ const { sendWelcomeEmail, sendPasswordResetOtp } = require("./emailService");
 
 const SALT_ROUNDS = 10;
 
+const normalizeLoginIdentifier = (value) => {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (/^[0-9+\- ]{7,15}$/.test(trimmed)) return trimmed;
+  return trimmed.toLowerCase();
+};
+
+const findUserByIdentifier = async (identifier) => {
+  const normalized = normalizeLoginIdentifier(identifier);
+  if (!normalized) return null;
+
+  const isPhone = /^[0-9+\- ]{7,15}$/.test(normalized);
+  const query = isPhone
+    ? {
+        $or: [
+          { "basicInfo.phone": normalized },
+          { "basicInfo.email": normalized.toLowerCase() },
+        ],
+      }
+    : { "basicInfo.email": normalized.toLowerCase() };
+
+  let user = await User.findOne(query);
+  if (!user) {
+    const SalesAgent = require("../models/SalesAgent");
+    user = await SalesAgent.findOne(query);
+  }
+  return user;
+};
+
 const sanitize = (user) => {
   if (!user) return null;
   const obj = user.toObject ? user.toObject() : user;
@@ -51,8 +81,9 @@ const register = async ({ name, email, phone, password, salesAgent }) => {
   return sanitize(user);
 };
 
-const login = async ({ email, password }) => {
-  const normalizedEmail = email.toLowerCase().trim();
+const login = async ({ email, phone, password }) => {
+  const identifier = normalizeLoginIdentifier(email || phone);
+  const normalizedEmail = identifier.toLowerCase();
 
   // Admin environment bypass
   if (
@@ -90,11 +121,7 @@ const login = async ({ email, password }) => {
     }
   }
 
-  let user = await User.findOne({ "basicInfo.email": normalizedEmail });
-  if (!user) {
-    const SalesAgent = require("../models/SalesAgent");
-    user = await SalesAgent.findOne({ "basicInfo.email": normalizedEmail });
-  }
+  const user = await findUserByIdentifier(identifier);
   if (!user) {
     throw new AuthError("Invalid email or password");
   }
@@ -179,12 +206,8 @@ const maskEmail = (email) => {
 };
 
 const forgotPasswordSendOtp = async (email) => {
-  const normalizedEmail = email.toLowerCase().trim();
-  let user = await User.findOne({ "basicInfo.email": normalizedEmail });
-  if (!user) {
-    const SalesAgent = require("../models/SalesAgent");
-    user = await SalesAgent.findOne({ "basicInfo.email": normalizedEmail });
-  }
+  const normalizedEmail = normalizeLoginIdentifier(email);
+  const user = await findUserByIdentifier(normalizedEmail);
   if (!user) throw new NotFoundError("no account found with this email id signup first");
 
   const otp = String(Math.floor(100000 + Math.random() * 900000));
@@ -202,12 +225,8 @@ const forgotPasswordSendOtp = async (email) => {
 };
 
 const forgotPasswordVerifyOtp = async (email, otp) => {
-  const normalizedEmail = email.toLowerCase().trim();
-  let user = await User.findOne({ "basicInfo.email": normalizedEmail });
-  if (!user) {
-    const SalesAgent = require("../models/SalesAgent");
-    user = await SalesAgent.findOne({ "basicInfo.email": normalizedEmail });
-  }
+  const normalizedEmail = normalizeLoginIdentifier(email);
+  const user = await findUserByIdentifier(normalizedEmail);
   if (!user) throw new AuthError("Invalid or expired OTP");
 
   const v = user.verification;
@@ -229,12 +248,8 @@ const forgotPasswordVerifyOtp = async (email, otp) => {
 };
 
 const resetPassword = async (email, newPassword) => {
-  const normalizedEmail = email.toLowerCase().trim();
-  let user = await User.findOne({ "basicInfo.email": normalizedEmail });
-  if (!user) {
-    const SalesAgent = require("../models/SalesAgent");
-    user = await SalesAgent.findOne({ "basicInfo.email": normalizedEmail });
-  }
+  const normalizedEmail = normalizeLoginIdentifier(email);
+  const user = await findUserByIdentifier(normalizedEmail);
   if (!user || !user.verification?.otpVerified) {
     throw new AuthError("OTP verification required before resetting password");
   }

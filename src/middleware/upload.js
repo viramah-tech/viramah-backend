@@ -22,22 +22,11 @@ const upload = multer({
 });
 
 const uploadToS3 = async (file, folder) => {
-  if (!bucketName) {
-    throw new ValidationError(
-      `S3 bucket not configured. Please set S3_BUCKET_NAME environment variable. Got: ${JSON.stringify({
-        s3Bucket: process.env.S3_BUCKET_NAME,
-        awsS3Bucket: process.env.AWS_S3_BUCKET,
-        region: process.env.AWS_REGION,
-        hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
-        hasSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY,
-      })}`
-    );
-  }
-  
-  if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
-    throw new ValidationError(
-      "AWS credentials not configured. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables."
-    );
+  if (!bucketName || !process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
+    console.warn("[UPLOAD] S3 not configured; falling back to data URL for", folder);
+    const mime = file.mimetype || "application/octet-stream";
+    const base64 = file.buffer.toString("base64");
+    return `data:${mime};base64,${base64}`;
   }
   
   const safeName = (file.originalname || "file").replace(/[^a-zA-Z0-9._-]/g, "_");

@@ -10,6 +10,7 @@ const {
 const crypto = require("crypto");
 const { logPaymentAudit, logAdminAction } = require("../utils/auditLogger");
 const { sendPaymentReceiptEmail } = require("./emailService");
+const { reconcileAccountState } = require("../utils/accountState");
 
 const CATEGORY_KEYS = [
   "registrationFee",
@@ -276,10 +277,12 @@ const approvePayment = async (userId, paymentId, adminUserId) => {
     }
   }
 
-  if (user.paymentSummary.isFullyPaid) {
-    user.onboarding.currentStep = "completed";
+  const reconciledState = reconcileAccountState(user);
+  user.accountStatus = reconciledState.accountStatus;
+  user.onboarding.currentStep = reconciledState.onboarding.currentStep;
+
+  if (reconciledState.onboarding.currentStep === "completed") {
     user.onboarding.completedAt = new Date();
-    user.accountStatus = "active";
   }
 
   // For half plan: mark as completed once ALL of these are met:
@@ -310,8 +313,15 @@ const approvePayment = async (userId, paymentId, adminUserId) => {
     }
   }
 
+  const finalReconciledState = reconcileAccountState(user);
+  user.accountStatus = finalReconciledState.accountStatus;
+  user.onboarding.currentStep = finalReconciledState.onboarding.currentStep;
+  if (finalReconciledState.onboarding.currentStep === "completed") {
+    user.onboarding.completedAt = new Date();
+  }
+
   await user.save();
-  
+
   logPaymentAudit("APPROVED", userId, paymentId, payment.amounts.totalAmount, {
     adminId: adminUserId,
     paymentType: payment.paymentType,
@@ -406,6 +416,15 @@ const rejectPayment = async (userId, paymentId, adminUserId, reason) => {
         user.accountStatus = "pending";
       }
     }
+  }
+
+  const reconciledState = reconcileAccountState(user);
+  user.accountStatus = reconciledState.accountStatus;
+  user.onboarding.currentStep = reconciledState.onboarding.currentStep;
+  if (reconciledState.onboarding.currentStep === "completed") {
+    user.onboarding.completedAt = new Date();
+  } else {
+    user.onboarding.completedAt = undefined;
   }
   
   await user.save();
@@ -502,6 +521,12 @@ const verifyUserDocuments = async (userId, adminUserId) => {
   user.verification.documentVerified = true;
   user.verification.documentVerificationStatus = "approved";
   user.verification.documentRejectionReason = null;
+  const reconciledState = reconcileAccountState(user);
+  user.accountStatus = reconciledState.accountStatus;
+  user.onboarding.currentStep = reconciledState.onboarding.currentStep;
+  if (reconciledState.onboarding.currentStep === "completed") {
+    user.onboarding.completedAt = new Date();
+  }
   await user.save();
   logAdminAction("VERIFY_DOCUMENTS", adminUserId, userId, {});
   return { userId, documentVerified: true, status: "approved" };
@@ -518,6 +543,10 @@ const rejectUserDocuments = async (userId, adminUserId, reason) => {
   user.verification.documentVerified = false;
   user.verification.documentVerificationStatus = "rejected";
   user.verification.documentRejectionReason = reason;
+  const reconciledState = reconcileAccountState(user);
+  user.accountStatus = reconciledState.accountStatus;
+  user.onboarding.currentStep = reconciledState.onboarding.currentStep;
+  user.onboarding.completedAt = undefined;
   
   await user.save();
   logAdminAction("REJECT_DOCUMENTS", adminUserId, userId, { reason });
@@ -536,7 +565,12 @@ const completeMoveIn = async (userId, adminUserId) => {
   if (!user.roomDetails) user.roomDetails = {};
   user.roomDetails.status = "checked_in";
   user.roomDetails.allocationDate = new Date();
-  user.accountStatus = "active";
+  const reconciledState = reconcileAccountState(user);
+  user.accountStatus = reconciledState.accountStatus;
+  user.onboarding.currentStep = reconciledState.onboarding.currentStep;
+  if (reconciledState.onboarding.currentStep === "completed") {
+    user.onboarding.completedAt = new Date();
+  }
   await user.save();
   logAdminAction("COMPLETE_MOVE_IN", adminUserId, userId, {});
   return { userId, roomStatus: user.roomDetails.status };
