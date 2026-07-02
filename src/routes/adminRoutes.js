@@ -382,6 +382,28 @@ router.put("/users/:userId/details", validate(userDetailsSchema), async (req, re
   }
 });
 
+const passwordChangeSchema = Joi.object({
+  password: Joi.string().min(6).max(100).required(),
+});
+
+router.put(
+  "/users/:userId/password",
+  validate(passwordChangeSchema),
+  async (req, res, next) => {
+    try {
+      const result = await adminService.changeUserPassword(
+        req.params.userId,
+        req.validatedBody.password,
+        req.user.basicInfo.userId
+      );
+      res.json({ success: true, message: "User password updated successfully", data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+
 // ----------------------------------------------------
 // SALES TEAM MANAGEMENT
 // ----------------------------------------------------

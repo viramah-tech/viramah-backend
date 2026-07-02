@@ -611,6 +611,24 @@ const updateUserDetails = async (userId, userDetails, adminUserId) => {
   return user;
 };
 
+const changeUserPassword = async (userId, newPassword, adminUserId) => {
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+
+  const bcrypt = require("bcrypt");
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+
+  if (!user.auth) user.auth = {};
+  user.auth.passwordHash = passwordHash;
+
+  await user.save();
+
+  logAdminAction("CHANGE_USER_PASSWORD", adminUserId, userId, {});
+
+  return { userId, success: true };
+};
+
+
 const addFine = async (userId, amount, reason, adminUserId) => {
   const user = await User.findOne({ "basicInfo.userId": userId });
   if (!user) throw new NotFoundError("User not found");
@@ -891,5 +909,6 @@ module.exports = {
   addBulkFines,
   getFinesSummary,
   clearAllFines,
+  changeUserPassword,
 };
 
