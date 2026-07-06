@@ -329,6 +329,57 @@ router.get("/dashboard", async (req, res, next) => {
   }
 });
 
+router.get("/audit-logs", async (req, res, next) => {
+  try {
+    const AuditLog = require("../models/AuditLog");
+    const { eventType, search, page = 1, limit = 20 } = req.query;
+
+    const query = {};
+    if (eventType) {
+      query.eventType = eventType.toUpperCase();
+    }
+
+    if (search) {
+      const searchRegex = new RegExp(search, "i");
+      query.$or = [
+        { "performedBy.fullName": searchRegex },
+        { "performedBy.userId": searchRegex },
+        { "target.targetId": searchRegex },
+        { "target.targetName": searchRegex },
+        { action: searchRegex }
+      ];
+    }
+
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 20;
+    const skip = (pageNum - 1) * limitNum;
+
+    const [logs, total] = await Promise.all([
+      AuditLog.find(query)
+        .sort({ timestamp: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      AuditLog.countDocuments(query)
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        logs,
+        pagination: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          pages: Math.ceil(total / limitNum)
+        }
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.put("/pricing", validate(pricingSchema), async (req, res, next) => {
   try {
     const pricing = await adminService.updatePricing(req.validatedBody);
@@ -868,7 +919,7 @@ router.delete("/s3/objects", roleGuard("admin"), validate(Joi.object({ key: Joi.
       { arrayFilters: [{ "elem.proof.url": { $in: targetUrls } }] }
     );
 
-    await logAdminAction(req.user.basicInfo.userId, `Deleted file from S3: ${key}`);
+    await logAdminAction("DELETE_S3_FILE", req.user.basicInfo.userId, null, { key });
 
     res.json({ success: true, message: `File ${key} deleted successfully` });
   } catch (err) {

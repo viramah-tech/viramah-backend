@@ -15,26 +15,50 @@ router.use(authenticate, roleGuard("admin", "sales_member"));
 // 1. LEADS MANAGEMENT
 // ----------------------------------------------------
 
-// Get all leads
+// Get all leads (or only those assigned to the sales member)
 router.get("/leads", async (req, res, next) => {
   try {
-    const leads = await Lead.find().populate("assignedTo", "basicInfo.fullName").sort({ createdAt: -1 });
+    const filter = {};
+    if (req.user.role === "sales_member") {
+      filter.assignedTo = req.user._id;
+    }
+    const leads = await Lead.find(filter).populate("assignedTo", "basicInfo.fullName").sort({ createdAt: -1 });
     res.json({ success: true, data: leads });
   } catch (error) {
     next(error);
   }
 });
 
-// Update a lead status/notes
+// Update a lead status/notes/agent
 router.put("/leads/:id", async (req, res, next) => {
   try {
-    const { status, notes } = req.body;
+    const { status, notes, assignedTo } = req.body;
+
+    const existingLead = await Lead.findById(req.params.id);
+    if (!existingLead) return res.status(404).json({ success: false, message: "Lead not found" });
+
+    if (req.user.role === "sales_member") {
+      // Sales members can only update their own leads
+      if (!existingLead.assignedTo || existingLead.assignedTo.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, message: "Forbidden: You are not assigned to this lead" });
+      }
+      // Sales members cannot change the assigned agent of a lead
+      if (assignedTo !== undefined && assignedTo !== existingLead.assignedTo.toString()) {
+        return res.status(403).json({ success: false, message: "Forbidden: Only admins can reassign leads" });
+      }
+    }
+
+    const updateData = {};
+    if (status !== undefined) updateData.status = status;
+    if (notes !== undefined) updateData.notes = notes;
+    if (assignedTo !== undefined) updateData.assignedTo = assignedTo || null;
+
     const lead = await Lead.findByIdAndUpdate(
       req.params.id,
-      { status, notes },
+      updateData,
       { new: true }
     ).populate("assignedTo", "basicInfo.fullName");
-    if (!lead) return res.status(404).json({ success: false, message: "Lead not found" });
+    
     res.json({ success: true, data: lead });
   } catch (error) {
     next(error);
@@ -70,9 +94,155 @@ router.post("/leads", async (req, res, next) => {
 // Delete a lead manually
 router.delete("/leads/:id", async (req, res, next) => {
   try {
-    const lead = await Lead.findByIdAndDelete(req.params.id);
-    if (!lead) return res.status(404).json({ success: false, message: "Lead not found" });
-    res.json({ success: true, message: `Lead ${lead.name} deleted successfully` });
+    const existingLead = await Lead.findById(req.params.id);
+    if (!existingLead) return res.status(404).json({ success: false, message: "Lead not found" });
+
+    if (req.user.role === "sales_member") {
+      if (!existingLead.assignedTo || existingLead.assignedTo.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, message: "Forbidden: You can only delete leads assigned to you" });
+      }
+    }
+
+    await Lead.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: `Lead ${existingLead.name} deleted successfully` });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Bulk Upload Leads via CSV
+const multer = require("multer");
+const { uploadToS3 } = require("../middleware/upload");
+const csvUpload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === "text/csv" || file.mimetype === "application/vnd.ms-excel" || file.originalname.endsWith(".csv")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only CSV files are allowed"), false);
+    }
+  },
+  limits: { fileSize: 2 * 1024 * 1024 } // 2MB limit
+});
+
+router.post("/leads/bulk-upload", csvUpload.single("file"), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No CSV file uploaded" });
+    }
+
+    // 1. Upload CSV to S3
+    const fileUrl = await uploadToS3(req.file, "leads_imports");
+
+    // 2. Parse CSV rows
+    const csvContent = req.file.buffer.toString("utf8");
+    const lines = csvContent.split(/\r?\n/);
+    if (lines.length <= 1) {
+      return res.status(400).json({ success: false, message: "CSV file is empty" });
+    }
+
+    // Parse headers
+    const rawHeaders = lines[0].split(",");
+    const headers = rawHeaders.map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, ''));
+    
+    // Check required fields
+    if (!headers.includes("name") || !headers.includes("phone")) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "CSV must contain at least 'name' and 'phone' column headers" 
+      });
+    }
+
+    const leadsToSave = [];
+    const errors = [];
+
+    // Parse rows
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue; // skip blank lines
+
+      // Split by commas, handling simple quotes
+      let row = [];
+      const matches = line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g);
+      if (matches) {
+        row = matches.map(v => v.trim().replace(/^["']|["']$/g, ''));
+      } else {
+        row = line.split(",").map(v => v.trim().replace(/^["']|["']$/g, ''));
+      }
+
+      // Build lead object
+      const leadData = {};
+      headers.forEach((header, idx) => {
+        leadData[header] = row[idx] || "";
+      });
+
+      if (!leadData.name || !leadData.phone) {
+        errors.push({ 
+          row: i + 1, 
+          record: leadData, 
+          error: "Missing required fields (name and phone are mandatory)" 
+        });
+        continue;
+      }
+
+      leadsToSave.push({
+        name: leadData.name.trim(),
+        phone: leadData.phone.trim(),
+        email: leadData.email ? leadData.email.toLowerCase().trim() : "",
+        city: leadData.city || "",
+        state: leadData.state || "",
+        country: leadData.country || "India",
+        source: leadData.source || "CSV Import",
+        notes: leadData.notes || ""
+      });
+    }
+
+    // 3. Assign agents round-robin
+    const mongoose = require("mongoose");
+    const SalesAgent = mongoose.model("SalesAgent");
+    const activeAgents = await SalesAgent.find({ accountStatus: "active" }).sort({ createdAt: 1 });
+    
+    if (activeAgents.length > 0 && leadsToSave.length > 0) {
+      const lastLead = await Lead.findOne({ assignedTo: { $ne: null } }).sort({ createdAt: -1 });
+      let agentIndex = 0;
+      if (lastLead && lastLead.assignedTo) {
+        const idx = activeAgents.findIndex(a => a._id.toString() === lastLead.assignedTo.toString());
+        if (idx !== -1) {
+          agentIndex = (idx + 1) % activeAgents.length;
+        }
+      }
+
+      for (const lead of leadsToSave) {
+        lead.assignedTo = activeAgents[agentIndex]._id;
+        agentIndex = (agentIndex + 1) % activeAgents.length;
+      }
+    }
+
+    // 4. Create leads in database
+    let createdCount = 0;
+    if (leadsToSave.length > 0) {
+      const createdLeads = await Lead.create(leadsToSave);
+      createdCount = createdLeads.length;
+      
+      // Log admin action
+      const { logAdminAction } = require("../utils/auditLogger");
+      await logAdminAction("BULK_LEADS_UPLOAD", req.user.basicInfo.userId, null, {
+        fileUrl,
+        processed: createdCount,
+        failed: errors.length
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        fileUrl,
+        processed: createdCount,
+        failed: errors.length,
+        errors: errors.slice(0, 100)
+      }
+    });
+
   } catch (error) {
     next(error);
   }
@@ -82,10 +252,14 @@ router.delete("/leads/:id", async (req, res, next) => {
 // 2. SCHEDULED VISITS MANAGEMENT
 // ----------------------------------------------------
 
-// Get all scheduled visits
+// Get all scheduled visits (or only those assigned to the sales member)
 router.get("/visits", async (req, res, next) => {
   try {
-    const visits = await ScheduledVisit.find().populate("assignedSalesMember", "basicInfo.fullName").sort({ visitDate: 1 });
+    const filter = {};
+    if (req.user.role === "sales_member") {
+      filter.assignedSalesMember = req.user._id;
+    }
+    const visits = await ScheduledVisit.find(filter).populate("assignedSalesMember", "basicInfo.fullName").sort({ visitDate: 1 });
     res.json({ success: true, data: visits });
   } catch (error) {
     next(error);
@@ -96,12 +270,29 @@ router.get("/visits", async (req, res, next) => {
 router.put("/visits/:id", async (req, res, next) => {
   try {
     const { status, notes, assignedSalesMember } = req.body;
+    
+    const existingVisit = await ScheduledVisit.findById(req.params.id);
+    if (!existingVisit) return res.status(404).json({ success: false, message: "Visit not found" });
+
+    if (req.user.role === "sales_member") {
+      if (!existingVisit.assignedSalesMember || existingVisit.assignedSalesMember.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, message: "Forbidden: You are not assigned to this visit" });
+      }
+      if (assignedSalesMember !== undefined && assignedSalesMember !== existingVisit.assignedSalesMember.toString()) {
+        return res.status(403).json({ success: false, message: "Forbidden: Only admins can reassign visits" });
+      }
+    }
+
+    const updateData = {};
+    if (status !== undefined) updateData.status = status;
+    if (notes !== undefined) updateData.notes = notes;
+    if (assignedSalesMember !== undefined) updateData.assignedSalesMember = assignedSalesMember || null;
+
     const visit = await ScheduledVisit.findByIdAndUpdate(
       req.params.id,
-      { status, notes, assignedSalesMember: assignedSalesMember || null },
+      updateData,
       { new: true }
     );
-    if (!visit) return res.status(404).json({ success: false, message: "Visit not found" });
     res.json({ success: true, data: visit });
   } catch (error) {
     next(error);
@@ -136,9 +327,17 @@ router.post("/visits", async (req, res, next) => {
 // Delete a scheduled visit manually
 router.delete("/visits/:id", async (req, res, next) => {
   try {
-    const visit = await ScheduledVisit.findByIdAndDelete(req.params.id);
-    if (!visit) return res.status(404).json({ success: false, message: "Visit not found" });
-    res.json({ success: true, message: `Scheduled visit for ${visit.name} deleted successfully` });
+    const existingVisit = await ScheduledVisit.findById(req.params.id);
+    if (!existingVisit) return res.status(404).json({ success: false, message: "Visit not found" });
+
+    if (req.user.role === "sales_member") {
+      if (!existingVisit.assignedSalesMember || existingVisit.assignedSalesMember.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, message: "Forbidden: You can only delete visits assigned to you" });
+      }
+    }
+
+    await ScheduledVisit.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: `Scheduled visit for ${existingVisit.name} deleted successfully` });
   } catch (error) {
     next(error);
   }
