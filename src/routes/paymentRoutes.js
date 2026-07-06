@@ -17,7 +17,7 @@ const bookingSchema = Joi.object({
 });
 
 const finalSchema = Joi.object({
-  category: Joi.string().valid("room_rent", "mess", "transport", "security_deposit").required(),
+  category: Joi.string().valid("room_rent", "mess", "transport", "security_deposit", "all").required(),
   method: Joi.string().valid("upi", "bank_transfer", "cash").required(),
   transactionId: Joi.string().min(3).max(80).required(),
   proofUrl: Joi.alternatives()

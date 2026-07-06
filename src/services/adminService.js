@@ -244,7 +244,7 @@ const approvePayment = async (userId, paymentId, adminUserId) => {
   }
 
   let breakdown;
-  if (payment.paymentType === "booking") {
+  if (payment.paymentType === "booking" || payment.category === "all") {
     breakdown = allocateWaterfall(payment.amounts.totalAmount, user.paymentSummary);
     payment.breakdown = breakdown;
   } else {

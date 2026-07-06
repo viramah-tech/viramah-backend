@@ -131,7 +131,7 @@ const reapplyApprovedPayments = (user) => {
     const amount = p.amounts?.totalAmount || 0;
     if (amount <= 0) continue;
 
-    if (p.paymentType === "booking") {
+    if (p.paymentType === "booking" || p.category === "all") {
       // Use waterfall allocation
       let breakdown;
       if (p.breakdown && Object.keys(p.breakdown).length > 0) {

@@ -17,6 +17,7 @@ const CATEGORY_MAP = {
   transport: "transportFee",
   security_deposit: "securityDeposit",
   fine: "fines",
+  all: "grandTotal",
 };
 
 const ALLOWED_PAYMENT_METHODS = ["upi", "bank_transfer", "cash"];
@@ -253,14 +254,19 @@ const submitFinalPayment = async (user, data) => {
   }
 
   // Mess and transport must be paid in full
-  if ((data.category === "mess" || data.category === "transport") && amount !== categoryRemaining) {
+  if (data.category !== "all" && (data.category === "mess" || data.category === "transport") && amount !== categoryRemaining) {
     throw new ValidationError(
       `${data.category} must be paid in full. Outstanding: ₹${categoryRemaining}`
     );
   }
 
   let paymentType = "full";
-  if (data.category === "room_rent") {
+  if (data.category === "all") {
+    if (amount > categoryRemaining) {
+      throw new ValidationError("Amount exceeds total outstanding balance.");
+    }
+    paymentType = amount === categoryRemaining ? "full" : "half";
+  } else if (data.category === "room_rent") {
     if (amount > categoryRemaining) {
       throw new ValidationError("Amount exceeds outstanding room rent balance.");
     }
@@ -278,7 +284,9 @@ const submitFinalPayment = async (user, data) => {
     paymentType = amount === categoryRemaining ? "full" : "half";
   }
   const breakdown = { registrationFee: 0, securityDeposit: 0, roomRent: 0, messFee: 0, transportFee: 0, fines: 0 };
-  breakdown[summaryKey] = amount;
+  if (data.category !== "all") {
+    breakdown[summaryKey] = amount;
+  }
 
   const paymentId = uuidv4();
   const paymentSignature = crypto
