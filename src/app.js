@@ -67,6 +67,15 @@ app.use(express.urlencoded({ extended: true }));
 const { getResolvedMongoUri } = require("./config/db");
 app.use(createSessionMiddleware(getResolvedMongoUri()));
 
+// Debug request/response logger — placed AFTER session middleware so req.session is populated
+app.use((req, res, next) => {
+  console.log(`[REQ] ${req.method} ${req.path} | Origin: ${req.headers.origin || "none"} | Cookie: ${req.headers.cookie ? "yes" : "no"} | SessionID: ${req.sessionID || "none"} | UserId: ${req.session?.userId || "none"}`);
+  res.on("finish", () => {
+    console.log(`[RES] ${req.method} ${req.path} -> ${res.statusCode} | Set-Cookie: ${res.getHeader("set-cookie") ? "yes" : "none"}`);
+  });
+  next();
+});
+
 app.get("/api/health", (req, res) => {
   res.json({ success: true, message: "Viramah API is running" });
 });

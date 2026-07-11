@@ -307,6 +307,10 @@ const userSchema = new Schema(
       ],
       default: []
     },
+    disableAutoFines: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );

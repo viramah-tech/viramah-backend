@@ -6,9 +6,10 @@ const applyDailyFines = async () => {
   try {
     console.log("[FINE SERVICE] Starting daily fine application (₹100/day)...");
     
-    // Find all users/tenants whose role is user or tenant
+    // Find all users/tenants whose role is user or tenant, and auto-fines are not disabled
     const users = await User.find({
-      role: { $in: ["user", "tenant"] }
+      role: { $in: ["user", "tenant"] },
+      disableAutoFines: { $ne: true }
     });
     
     let count = 0;

@@ -422,6 +422,7 @@ const userDetailsSchema = Joi.object({
     phone: Joi.string().pattern(/^[0-9+\- ]{7,15}$/).allow("", null),
     alternatePhone: Joi.string().pattern(/^[0-9+\- ]{7,15}$/).allow("", null),
   }),
+  disableAutoFines: Joi.boolean(),
 }).min(1);
 
 router.put("/users/:userId/details", validate(userDetailsSchema), async (req, res, next) => {

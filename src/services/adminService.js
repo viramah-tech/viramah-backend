@@ -606,6 +606,10 @@ const updateUserDetails = async (userId, userDetails, adminUserId) => {
     if (userDetails.guardian.alternatePhone !== undefined) user.guardian.alternatePhone = userDetails.guardian.alternatePhone;
   }
 
+  if (userDetails.disableAutoFines !== undefined) {
+    user.disableAutoFines = userDetails.disableAutoFines;
+  }
+
   await user.save();
   logAdminAction("UPDATE_USER_DETAILS", adminUserId, userId, { updatedFields: userDetails });
   return user;

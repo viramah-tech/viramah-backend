@@ -120,11 +120,13 @@ const connectDB = async () => {
           if (resolvedUri) {
             resolvedMongoUri = resolvedUri;
             await mongoose.connect(resolvedUri, options);
+            await mongoose.connection.db.admin().ping();
             console.log("MongoDB connected successfully (manual SRV resolution via Google DNS)");
             return;
           }
         } catch (manualErr) {
           console.error("[DB] Manual SRV resolution fallback failed:", manualErr.message);
+          await mongoose.disconnect().catch(() => {});
         }
       } else {
         // Default DNS works, use the SRV URI directly
@@ -132,10 +134,12 @@ const connectDB = async () => {
           console.log("[DB] Attempting connection using MONGODB_URI (SRV)...");
           resolvedMongoUri = primaryUri;
           await mongoose.connect(primaryUri, options);
+          await mongoose.connection.db.admin().ping();
           console.log("MongoDB connected successfully (Atlas SRV)");
           return;
         } catch (primaryErr) {
           console.error("[DB] Connection using MONGODB_URI failed:", primaryErr.message);
+          await mongoose.disconnect().catch(() => {});
         }
       }
     } else {
@@ -144,10 +148,12 @@ const connectDB = async () => {
         console.log("[DB] Attempting connection using MONGODB_URI...");
         resolvedMongoUri = primaryUri;
         await mongoose.connect(primaryUri, options);
+        await mongoose.connection.db.admin().ping();
         console.log("MongoDB connected successfully (direct URI)");
         return;
       } catch (primaryErr) {
         console.error("[DB] Connection using MONGODB_URI failed:", primaryErr.message);
+        await mongoose.disconnect().catch(() => {});
       }
     }
     // If none of the above connected, try remaining fallbacks
@@ -158,10 +164,12 @@ const connectDB = async () => {
       try {
         console.log("[DB] Attempting non-SRV MONGODB_URI_NO_SRV fallback...");
         await mongoose.connect(noSrvUri, { ...options, tls: false });
+        await mongoose.connection.db.admin().ping();
         console.log("MongoDB connected successfully using MONGODB_URI_NO_SRV (non-SRV hosts)");
         return;
       } catch (noSrvErr) {
         console.error("[DB] Non-SRV fallback connection failed:", noSrvErr.message);
+        await mongoose.disconnect().catch(() => {});
       }
     }
     // If we're running in development and a developer explicitly allows local fallback,
@@ -171,10 +179,12 @@ const connectDB = async () => {
       try {
         console.log("[DB] Attempting local MongoDB fallback at 127.0.0.1:27017 (development only)...");
         await mongoose.connect(localFallback, { ...options, tls: false });
+        await mongoose.connection.db.admin().ping();
         console.log("MongoDB connected successfully (local fallback)");
         return;
       } catch (localErr) {
         console.error("[DB] Local fallback connection also failed:", localErr.message);
+        await mongoose.disconnect().catch(() => {});
       }
     }
 
