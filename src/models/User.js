@@ -146,7 +146,7 @@ const paymentRecordSchema = new Schema(
     },
     category: {
       type: String,
-      enum: ["booking", "security_deposit", "room_rent", "mess", "transport", "fine", "all", null],
+      enum: ["booking", "security_deposit", "room_rent", "mess", "transport", "fine", null],
       default: null,
     },
     method: {

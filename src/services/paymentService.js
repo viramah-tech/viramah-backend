@@ -297,7 +297,7 @@ const submitFinalPayment = async (user, data) => {
   user.paymentDetails.push({
     paymentId,
     paymentType,
-    category: data.category,
+    category: data.category === "all" ? null : data.category,
     method: data.method,
     transactionId: data.transactionId,
     proof: { url: data.proofUrl, uploadedAt: new Date() },

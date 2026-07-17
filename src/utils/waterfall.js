@@ -29,6 +29,7 @@ const allocateWaterfall = (amount, summary) => {
     roomRent: 0,
     messFee: 0,
     transportFee: 0,
+    fines: 0,
   };
 
   // Step 1: Registration Fee
@@ -63,6 +64,13 @@ const allocateWaterfall = (amount, summary) => {
   if (remaining > 0 && summary.transportFee?.remaining > 0) {
     const alloc = Math.min(remaining, summary.transportFee.remaining);
     breakdown.transportFee = alloc;
+    remaining -= alloc;
+  }
+
+  // Step 6: Fines
+  if (remaining > 0 && summary.fines?.remaining > 0) {
+    const alloc = Math.min(remaining, summary.fines.remaining);
+    breakdown.fines = alloc;
     remaining -= alloc;
   }
 
@@ -131,10 +139,21 @@ const reapplyApprovedPayments = (user) => {
     const amount = p.amounts?.totalAmount || 0;
     if (amount <= 0) continue;
 
-    if (p.paymentType === "booking" || p.category === "all") {
+    if (p.paymentType === "booking" || p.category === "all" || !p.category) {
       // Use waterfall allocation
       let breakdown;
-      if (p.breakdown && Object.keys(p.breakdown).length > 0) {
+      const isBreakdownEmptyOrAllZero = !p.breakdown || 
+        Object.keys(p.breakdown).length === 0 || 
+        (
+          (p.breakdown.registrationFee || 0) === 0 &&
+          (p.breakdown.securityDeposit || 0) === 0 &&
+          (p.breakdown.roomRent || 0) === 0 &&
+          (p.breakdown.messFee || 0) === 0 &&
+          (p.breakdown.transportFee || 0) === 0 &&
+          (p.breakdown.fines || 0) === 0
+        );
+
+      if (!isBreakdownEmptyOrAllZero) {
         breakdown = p.breakdown;
       } else {
         try {
@@ -142,7 +161,7 @@ const reapplyApprovedPayments = (user) => {
           p.breakdown = breakdown;
         } catch (e) {
           // If waterfall fails, fallback to simple distribution
-          breakdown = { registrationFee: 0, securityDeposit: 0, roomRent: 0, messFee: 0, transportFee: 0 };
+          breakdown = { registrationFee: 0, securityDeposit: 0, roomRent: 0, messFee: 0, transportFee: 0, fines: 0 };
         }
       }
 
