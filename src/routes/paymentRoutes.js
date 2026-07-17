@@ -134,4 +134,18 @@ router.post(
   }
 );
 
+router.delete(
+  "/:paymentId",
+  auth,
+  stepGate("booking_payment", "final_payment", "completed"),
+  async (req, res, next) => {
+    try {
+      const result = await paymentService.deletePayment(req.user, req.params.paymentId);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 module.exports = router;

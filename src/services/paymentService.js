@@ -5,6 +5,7 @@ const { bucketName } = require("../config/s3");
 const {
   ValidationError,
   ConflictError,
+  NotFoundError,
   AppError,
 } = require("../utils/errors");
 const { logPaymentAudit } = require("../utils/auditLogger");
@@ -506,6 +507,37 @@ const getPaymentStatus = async (user) => {
   };
 };
 
+const deletePayment = async (user, paymentId) => {
+  if (!paymentId || typeof paymentId !== "string") {
+    throw new ValidationError("Invalid payment ID format");
+  }
+
+  const paymentIndex = user.paymentDetails.findIndex((p) => p.paymentId === paymentId);
+  if (paymentIndex === -1) {
+    throw new NotFoundError("Payment not found");
+  }
+
+  const payment = user.paymentDetails[paymentIndex];
+  if (payment.status !== "pending" && payment.status !== "rejected") {
+    throw new ConflictError("Only pending or rejected payments can be deleted");
+  }
+
+  user.paymentDetails.splice(paymentIndex, 1);
+
+  // Reapply approved payments to sync balances (just in case)
+  const { reapplyApprovedPayments } = require("../utils/waterfall");
+  reapplyApprovedPayments(user);
+
+  await user.save();
+
+  logPaymentAudit("DELETED", user.basicInfo.userId, paymentId, payment.amounts?.totalAmount || 0, {
+    status: payment.status,
+    category: payment.category,
+  });
+
+  return { success: true, paymentId };
+};
+
 module.exports = {
   validateProofUrl,
   submitBookingPayment,
@@ -515,4 +547,5 @@ module.exports = {
   requestBookingCancellation,
   getPaymentStatus,
   upgradePaymentPlan,
+  deletePayment,
 };

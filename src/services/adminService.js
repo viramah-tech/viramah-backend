@@ -261,17 +261,8 @@ const approvePayment = async (userId, paymentId, adminUserId) => {
     .update(`${adminUserId}:${paymentId}:APPROVED:${Date.now()}`)
     .digest("hex");
 
-  // First approved booking payment starts the deadline clock
+  // First approved booking payment starts the deadline clock (disabled)
   if (payment.paymentType === "booking") {
-    const pricing = await PricingConfig.findOne();
-    const days = pricing?.paymentDeadlineDays || 30;
-    const startedAt = new Date();
-    user.paymentDeadline = {
-      ...(user.paymentDeadline?.toObject ? user.paymentDeadline.toObject() : {}),
-      startedAt,
-      expiresAt: new Date(startedAt.getTime() + days * 24 * 60 * 60 * 1000),
-    };
-
     if (user.onboarding.currentStep === "booking_payment") {
       user.onboarding.currentStep = "final_payment";
     }
