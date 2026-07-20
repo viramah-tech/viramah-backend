@@ -35,7 +35,8 @@ const getUsers = async ({ status, step, search, page = 1, limit = 20 }) => {
       { "basicInfo.phone": searchRegex },
       { "basicInfo.userId": searchRegex },
       { "basicInfo.residentId": searchRegex },
-      { "guardianDetails.fullName": searchRegex }
+      { "guardianDetails.fullName": searchRegex },
+      { "paymentDetails.transactionId": searchRegex }
     ];
   }
 
@@ -43,6 +44,7 @@ const getUsers = async ({ status, step, search, page = 1, limit = 20 }) => {
   const [users, total] = await Promise.all([
     User.find(query)
       .select("-auth.passwordHash -verification.otp")
+      .populate("roomDetails.roomType")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit)),
