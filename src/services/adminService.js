@@ -8,6 +8,7 @@ const {
   ConflictError,
 } = require("../utils/errors");
 const crypto = require("crypto");
+const bcrypt = require("bcrypt");
 const { logPaymentAudit, logAdminAction } = require("../utils/auditLogger");
 const { sendPaymentReceiptEmail } = require("./emailService");
 const { reconcileAccountState } = require("../utils/accountState");
@@ -214,11 +215,8 @@ const applyBreakdown = (summary, breakdown) => {
     if (amount <= 0) continue;
     const entry = summary[key];
     if (!entry) continue;
-    if (amount > entry.remaining) {
-      throw new ValidationError(`Breakdown exceeds remaining for ${key}`);
-    }
     entry.paid += amount;
-    entry.remaining -= amount;
+    entry.remaining = Math.max(0, (entry.total || 0) - entry.paid);
   }
   recalculateGrandTotal(summary);
   return summary;
@@ -241,29 +239,24 @@ const approvePayment = async (userId, paymentId, adminUserId) => {
 
   const payment = user.paymentDetails.find((p) => p.paymentId === paymentId);
   if (!payment) throw new NotFoundError("Payment not found");
-  if (payment.status !== "pending") {
+  if (payment.status !== "pending" && payment.status !== "rejected") {
     throw new ConflictError(`Payment already ${payment.status}`);
   }
-
-  let breakdown;
-  if (payment.paymentType === "booking" || payment.category === "all" || !payment.category) {
-    breakdown = allocateWaterfall(payment.amounts.totalAmount, user.paymentSummary);
-    payment.breakdown = breakdown;
-  } else {
-    breakdown = payment.breakdown;
-  }
-
-  applyBreakdown(user.paymentSummary, breakdown);
 
   payment.status = "approved";
   payment.reviewedBy = adminUserId;
   payment.reviewedAt = new Date();
+  payment.rejectionReason = undefined;
   payment.approvalSignature = crypto
     .createHmac("sha256", process.env.PAYMENT_SIGNATURE_SECRET || "dev-secret")
     .update(`${adminUserId}:${paymentId}:APPROVED:${Date.now()}`)
     .digest("hex");
 
-  // First approved booking payment starts the deadline clock (disabled)
+  // Re-sync all approved payment ledgers dynamically
+  const { reapplyApprovedPayments } = require("../utils/waterfall");
+  reapplyApprovedPayments(user);
+
+  // First approved booking payment moves onboarding step
   if (payment.paymentType === "booking") {
     if (user.onboarding.currentStep === "booking_payment") {
       user.onboarding.currentStep = "final_payment";
@@ -612,7 +605,6 @@ const changeUserPassword = async (userId, newPassword, adminUserId) => {
   const user = await User.findOne({ "basicInfo.userId": userId });
   if (!user) throw new NotFoundError("User not found");
 
-  const bcrypt = require("bcrypt");
   const passwordHash = await bcrypt.hash(newPassword, 10);
 
   if (!user.auth) user.auth = {};
@@ -623,6 +615,38 @@ const changeUserPassword = async (userId, newPassword, adminUserId) => {
   logAdminAction("CHANGE_USER_PASSWORD", adminUserId, userId, {});
 
   return { userId, success: true };
+};
+
+const updateSecurityDeposit = async (userId, newDepositAmount, adminUserId) => {
+  if (typeof newDepositAmount !== "number" || Number.isNaN(newDepositAmount) || newDepositAmount < 0) {
+    throw new ValidationError("Security deposit must be a valid non-negative number");
+  }
+
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+
+  if (!user.paymentSummary) {
+    user.paymentSummary = {};
+  }
+  if (!user.paymentSummary.securityDeposit) {
+    user.paymentSummary.securityDeposit = { total: 0, paid: 0, remaining: 0 };
+  }
+
+  const paidSoFar = user.paymentSummary.securityDeposit.paid || 0;
+  user.paymentSummary.securityDeposit.total = newDepositAmount;
+  user.paymentSummary.securityDeposit.remaining = Math.max(0, newDepositAmount - paidSoFar);
+
+  const { recalculateGrandTotal } = require("../utils/waterfall");
+  recalculateGrandTotal(user.paymentSummary);
+
+  await user.save();
+  logAdminAction("UPDATE_SECURITY_DEPOSIT", adminUserId, userId, { newDepositAmount });
+
+  return {
+    userId,
+    securityDeposit: user.paymentSummary.securityDeposit,
+    grandTotal: user.paymentSummary.grandTotal,
+  };
 };
 
 
@@ -908,4 +932,317 @@ module.exports = {
   clearAllFines,
   changeUserPassword,
 };
+
+const { parseCSV, mapHeaders, extractUTRFromString } = require("../utils/csvParser");
+
+const reconcileStatement = async (fileBuffer, customMapping = null) => {
+  // Convert buffer to string
+  const text = fileBuffer.toString("utf8");
+  const parsedRows = parseCSV(text);
+  
+  if (parsedRows.length < 2) {
+    throw new ValidationError("Bank statement must contain at least a header row and one data row.");
+  }
+  
+  const headers = parsedRows[0];
+  let mapping;
+  
+  if (customMapping) {
+    mapping = {
+      dateIdx: typeof customMapping.dateIdx === 'number' ? customMapping.dateIdx : -1,
+      descIdx: typeof customMapping.descIdx === 'number' ? customMapping.descIdx : -1,
+      refIdx: typeof customMapping.refIdx === 'number' ? customMapping.refIdx : -1,
+      amountIdx: typeof customMapping.amountIdx === 'number' ? customMapping.amountIdx : -1,
+    };
+  } else {
+    mapping = mapHeaders(headers);
+    if (mapping.amountIdx === -1) {
+      return {
+        mappingRequired: true,
+        headers,
+        suggestedMapping: mapping
+      };
+    }
+  }
+  
+  const { dateIdx, descIdx, refIdx, amountIdx } = mapping;
+
+  // Process rows, parsing amounts and extracting reference numbers
+  const bankTransactions = [];
+  for (let i = 1; i < parsedRows.length; i++) {
+    const row = parsedRows[i];
+    if (row.length < Math.max(dateIdx, descIdx, refIdx, amountIdx) + 1) {
+      continue; // Skip malformed rows
+    }
+
+    const rawDate = dateIdx !== -1 ? row[dateIdx] : "";
+    const rawDesc = descIdx !== -1 ? row[descIdx] : "";
+    const rawRef = refIdx !== -1 ? row[refIdx] : "";
+    const rawAmountStr = amountIdx !== -1 ? row[amountIdx] : "0";
+
+    // Clean amount (remove commas, currency symbols, whitespace)
+    const cleanedAmountStr = rawAmountStr.replace(/[^0-9.-]/g, "");
+    const amount = parseFloat(cleanedAmountStr);
+    
+    // We only verify credit transactions (deposits to host's account)
+    if (isNaN(amount) || amount <= 0) {
+      continue;
+    }
+
+    // Extract potential UTR
+    let utr = (rawRef || "").trim();
+    if (!utr && rawDesc) {
+      utr = extractUTRFromString(rawDesc);
+    }
+
+    bankTransactions.push({
+      index: i,
+      date: rawDate.trim(),
+      description: rawDesc.trim(),
+      rawRef: rawRef.trim(),
+      utr: utr,
+      amount: amount
+    });
+  }
+
+  // Get all users who have pending payments
+  const users = await User.find({
+    "paymentDetails.status": "pending"
+  }).select("basicInfo.userId basicInfo.fullName basicInfo.email basicInfo.phone paymentDetails paymentSummary");
+
+  // Flatten pending payments from users
+  const pendingPayments = [];
+  for (const user of users) {
+    if (user.paymentDetails && user.paymentDetails.length > 0) {
+      for (const p of user.paymentDetails) {
+        if (p.status === "pending") {
+          pendingPayments.push({
+            userId: user.basicInfo?.userId || "UNKNOWN",
+            fullName: user.basicInfo?.fullName || "Unknown",
+            email: user.basicInfo?.email || "N/A",
+            phone: user.basicInfo?.phone || "N/A",
+            payment: {
+              paymentId: p.paymentId,
+              paymentType: p.paymentType,
+              category: p.category,
+              method: p.method,
+              transactionId: p.transactionId,
+              amount: p.amounts?.totalAmount ?? 0,
+              paidAt: p.paidAt,
+            },
+            paymentSummary: {
+              totalBilled: user.paymentSummary?.grandTotal?.total || 0,
+              totalPaid: user.paymentSummary?.grandTotal?.paid || 0,
+            }
+          });
+        }
+      }
+    }
+  }
+
+  // Matching logic
+  const matched = [];
+  const partialMatched = [];
+  const similarMatched = [];
+  const matchedPendingIds = new Set();
+  const matchedBankIndices = new Set();
+
+  // Step 1: Exact Matches (matching UTR and Amount)
+  for (const bankTx of bankTransactions) {
+    if (!bankTx.utr) continue;
+
+    const exactMatchIndex = pendingPayments.findIndex(p => 
+      !matchedPendingIds.has(p.payment.paymentId) &&
+      p.payment.transactionId && 
+      p.payment.transactionId.trim().toLowerCase() === bankTx.utr.toLowerCase() &&
+      p.payment.amount === bankTx.amount
+    );
+
+    if (exactMatchIndex !== -1) {
+      const match = pendingPayments[exactMatchIndex];
+      matched.push({
+        bankTx,
+        pendingPayment: match
+      });
+      matchedPendingIds.add(match.payment.paymentId);
+      matchedBankIndices.add(bankTx.index);
+    }
+  }
+
+  // Step 2: Partial Matches (matching UTR but different Amount)
+  for (const bankTx of bankTransactions) {
+    if (matchedBankIndices.has(bankTx.index) || !bankTx.utr) continue;
+
+    const uMatchIndex = pendingPayments.findIndex(p => 
+      !matchedPendingIds.has(p.payment.paymentId) &&
+      p.payment.transactionId && 
+      p.payment.transactionId.trim().toLowerCase() === bankTx.utr.toLowerCase()
+    );
+
+    if (uMatchIndex !== -1) {
+      const match = pendingPayments[uMatchIndex];
+      partialMatched.push({
+        bankTx,
+        pendingPayment: match,
+        reason: "amount_mismatch"
+      });
+      matchedPendingIds.add(match.payment.paymentId);
+      matchedBankIndices.add(bankTx.index);
+    }
+  }
+
+  // Step 3: Similar Matches (Amount matches, but UTR doesn't)
+  for (const bankTx of bankTransactions) {
+    if (matchedBankIndices.has(bankTx.index)) continue;
+
+    // Look for any pending payment with matching amount that hasn't been matched yet
+    const amountMatchIndex = pendingPayments.findIndex(p =>
+      !matchedPendingIds.has(p.payment.paymentId) &&
+      p.payment.amount === bankTx.amount
+    );
+
+    if (amountMatchIndex !== -1) {
+      const match = pendingPayments[amountMatchIndex];
+      similarMatched.push({
+        bankTx,
+        pendingPayment: match,
+        reason: "similar_amount"
+      });
+      matchedPendingIds.add(match.payment.paymentId);
+      matchedBankIndices.add(bankTx.index);
+    }
+  }
+
+  // Unmatched bank transactions
+  const unmatchedBank = bankTransactions.filter(tx => !matchedBankIndices.has(tx.index));
+
+  // Unmatched pending payments in DB
+  const unmatchedPending = pendingPayments.filter(p => !matchedPendingIds.has(p.payment.paymentId));
+
+  return {
+    mappingRequired: false,
+    matched,
+    partialMatched,
+    similarMatched,
+    unmatchedBank,
+    unmatchedPending,
+  };
+};
+
+const bulkApprovePayments = async (approvals, adminUserId) => {
+  if (!Array.isArray(approvals)) {
+    throw new ValidationError("Approvals must be an array of { userId, paymentId }");
+  }
+
+  const results = {
+    successCount: 0,
+    failures: []
+  };
+
+  for (const app of approvals) {
+    try {
+      await approvePayment(app.userId, app.paymentId, adminUserId);
+      results.successCount++;
+    } catch (err) {
+      results.failures.push({
+        userId: app.userId,
+        paymentId: app.paymentId,
+        error: err.message || "Failed to approve"
+      });
+    }
+  }
+
+  return results;
+};
+
+const { generateUserId } = require("../utils/idGenerator");
+
+const createStudentByAdmin = async (data, adminUserId) => {
+  const normalizedEmail = (data.email || "").toLowerCase().trim();
+  if (!normalizedEmail) throw new ValidationError("Email is required");
+
+  const existingUser = await User.findOne({ "basicInfo.email": normalizedEmail });
+  if (existingUser) throw new ConflictError("A student account with this email already exists");
+
+  const userId = await generateUserId();
+  const password = data.password || "Viramah@123";
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  const newUser = new User({
+    basicInfo: {
+      userId,
+      residentId: userId,
+      fullName: data.fullName,
+      email: normalizedEmail,
+      phone: data.phone || "",
+      gender: data.gender || "male",
+      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+      address: data.address || "",
+      salesAgent: adminUserId || "Admin Direct",
+    },
+    auth: {
+      passwordHash,
+    },
+    verification: {
+      emailVerified: true,
+      phoneVerified: true,
+      documentVerificationStatus: "verified",
+    },
+    profilePhoto: data.photoUrl ? { url: data.photoUrl, uploadedAt: new Date() } : undefined,
+    guardianDetails: {
+      fullName: data.guardianFullName || "",
+      relation: data.guardianRelation || "",
+      phone: data.guardianPhone || "",
+      alternatePhone: data.guardianAlternatePhone || "",
+      idProof: {
+        idType: data.idType || "aadhaar",
+        idNumber: data.idNumber || "",
+        frontImage: data.idFrontUrl || "",
+        backImage: data.idBackUrl || "",
+      },
+    },
+    userIdProof: {
+      idType: data.idType || "aadhaar",
+      idNumber: data.idNumber || "",
+      frontImage: data.idFrontUrl || "",
+      backImage: data.idBackUrl || "",
+    },
+    roomDetails: {
+      roomNumber: data.roomNumber || "",
+      allocationDate: data.moveInDate ? new Date(data.moveInDate) : new Date(),
+      status: "allocated",
+    },
+    paymentSummary: {
+      roomRent: {
+        appliedRoomRent: Number(data.appliedRoomRent) || 0,
+        selectedPlan: "full",
+        fullPaymentDiscountPct: 0,
+      },
+      securityDeposit: {
+        amount: Number(data.securityDeposit) || 0,
+      },
+      registrationFee: {
+        amount: Number(data.registrationFee) || 0,
+      },
+    },
+    onboarding: {
+      currentStep: "completed",
+      isCompleted: true,
+    },
+    accountStatus: "active",
+  });
+
+  await newUser.save();
+  await logAdminAction(adminUserId, "CREATE_STUDENT", `Created student profile ${userId} (${data.fullName})`);
+
+  return { user: newUser, tempPassword: password };
+};
+
+// Export these functions too
+module.exports.reconcileStatement = reconcileStatement;
+module.exports.bulkApprovePayments = bulkApprovePayments;
+module.exports.createStudentByAdmin = createStudentByAdmin;
+module.exports.updateSecurityDeposit = updateSecurityDeposit;
+
+
 

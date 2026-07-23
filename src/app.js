@@ -92,6 +92,7 @@ const adminRoutes = require("./routes/adminRoutes");
 const websiteRoutes = require("./routes/websiteRoutes");
 const salesRoutes = require("./routes/salesRoutes");
 const emailRoutes = require("./routes/emailRoutes");
+const messRoutes = require("./routes/messRoutes");
 
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/public/auth", authLimiter, authRoutes);
@@ -105,6 +106,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/admin/emails", emailRoutes);
 app.use("/api/website", websiteRoutes);
 app.use("/api/sales", salesRoutes);
+app.use("/api/mess", messRoutes);
 
 // 404
 app.use((req, res, next) => {

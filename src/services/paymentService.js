@@ -193,7 +193,10 @@ const submitBookingPayment = async (user, data) => {
       `Minimum booking payment is ₹${pricing.bookingPayment.minimumAmount}`
     );
   }
-  if (amount > user.paymentSummary.grandTotal.remaining) {
+  
+  if (user.paymentSummary) recalculateGrandTotal(user.paymentSummary);
+  const bookingGrandRemaining = user.paymentSummary?.grandTotal?.remaining ?? 999999;
+  if (amount > bookingGrandRemaining) {
     throw new ValidationError("Amount exceeds total outstanding balance");
   }
 
@@ -244,45 +247,28 @@ const submitFinalPayment = async (user, data) => {
     throw new ValidationError("Payment amount must be a positive number");
   }
 
-  let categoryRemaining = user.paymentSummary[summaryKey].remaining;
+  if (user.paymentSummary) recalculateGrandTotal(user.paymentSummary);
 
-  if (data.category === "room_rent" && user.paymentSummary.roomRent.selectedPlan === "pending") {
+  let categoryRemaining = user.paymentSummary?.[summaryKey]?.remaining ?? 0;
+  const grandRemaining = user.paymentSummary?.grandTotal?.remaining ?? 0;
+
+  if (data.category === "room_rent" && user.paymentSummary?.roomRent?.selectedPlan === "pending") {
     throw new ValidationError("Payment plan must be selected during room selection. Please go back and select your room again.");
   }
 
-  if (categoryRemaining <= 0) {
-    throw new ValidationError(`No dues remaining for ${data.category}`);
+  if (grandRemaining <= 0) {
+    throw new ValidationError("All dues are already fully paid!");
   }
 
-  // Mess and transport must be paid in full
-  if (data.category !== "all" && (data.category === "mess" || data.category === "transport") && amount !== categoryRemaining) {
-    throw new ValidationError(
-      `${data.category} must be paid in full. Outstanding: ₹${categoryRemaining}`
-    );
+  if (amount > grandRemaining) {
+    throw new ValidationError(`Amount (₹${amount}) exceeds total remaining balance (₹${grandRemaining})`);
   }
 
   let paymentType = "full";
-  if (data.category === "all") {
-    if (amount > categoryRemaining) {
-      throw new ValidationError("Amount exceeds total outstanding balance.");
-    }
-    paymentType = amount === categoryRemaining ? "full" : "half";
-  } else if (data.category === "room_rent") {
-    if (amount > categoryRemaining) {
-      throw new ValidationError("Amount exceeds outstanding room rent balance.");
-    }
-    
-    // Classify whether it's full or half roughly, mostly for logging clarity
-    if (amount === categoryRemaining) {
-        paymentType = "full";
-    } else {
-        paymentType = "half";
-    }
+  if (amount === grandRemaining) {
+    paymentType = "full";
   } else {
-    if (amount > categoryRemaining) {
-      throw new ValidationError(`Amount exceeds outstanding balance for ${data.category}`);
-    }
-    paymentType = amount === categoryRemaining ? "full" : "half";
+    paymentType = "half";
   }
   const breakdown = { registrationFee: 0, securityDeposit: 0, roomRent: 0, messFee: 0, transportFee: 0, fines: 0 };
   if (data.category !== "all") {
@@ -491,9 +477,24 @@ const upgradePaymentPlan = async (user) => {
 };
 
 const getPaymentStatus = async (user) => {
+  if (!user.paymentSummary) {
+    user.paymentSummary = {
+      registrationFee: { total: 1000, paid: 0, remaining: 1000 },
+      securityDeposit: { total: 5000, paid: 0, remaining: 5000 },
+      roomRent: { total: 0, paid: 0, remaining: 0, selectedPlan: "pending" },
+      messFee: { total: 0, paid: 0, remaining: 0 },
+      transportFee: { total: 0, paid: 0, remaining: 0 },
+      fines: { total: 0, paid: 0, remaining: 0 },
+      grandTotal: { total: 6000, paid: 0, remaining: 6000 },
+      isFullyPaid: false,
+    };
+  }
+  const { recalculateGrandTotal } = require("../utils/waterfall");
+  recalculateGrandTotal(user.paymentSummary);
+
   const bookingFinancials = getBookingFinancials(user);
   return {
-    paymentDetails: user.paymentDetails,
+    paymentDetails: user.paymentDetails || [],
     paymentSummary: user.paymentSummary,
     paymentDeadline: user.paymentDeadline,
     lifecycle: {

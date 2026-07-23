@@ -6,6 +6,9 @@ const validate = require("../middleware/validate");
 const adminService = require("../services/adminService");
 const { logAdminAction } = require("../utils/auditLogger");
 const { collectReferencedS3KeysFromUsers, splitS3KeysByReference, getS3ErrorMessage } = require("../utils/s3Cleanup");
+const multer = require("multer");
+const uploadCsv = multer({ storage: multer.memoryStorage() });
+const { uploadToS3 } = require("../middleware/upload");
 
 const router = express.Router();
 
@@ -14,6 +17,11 @@ router.use(auth);
 
 // Apply dynamic role verification (allowing sales_member/accountant to read users/rooms/payments and manage relevant items)
 router.use((req, res, next) => {
+  // Skip for /emails/* paths — emailRoutes has its own role guard
+  if (req.path.startsWith("/emails")) {
+    return next();
+  }
+
   const isReadOnlyRoute = req.method === "GET" && (
     req.path === "/users" ||
     req.path.startsWith("/users/") ||
@@ -33,10 +41,10 @@ router.use((req, res, next) => {
   // Allow sales to save notes (PUT /users/:userId/notes)
   const isSalesNoteAction = req.method === "PUT" && req.path.endsWith("/notes");
 
-  // Allow accountant to approve/reject payments
-  const isPaymentAction = req.method === "PUT" && 
-    req.path.startsWith("/payments/") && 
-    (req.path.endsWith("/approve") || req.path.endsWith("/reject"));
+  // Allow accountant to approve/reject payments, reconciliation, and bulk approvals
+  const isPaymentAction = 
+    (req.method === "PUT" && req.path.startsWith("/payments/") && (req.path.endsWith("/approve") || req.path.endsWith("/reject"))) ||
+    (req.method === "POST" && (req.path === "/payments/reconcile" || req.path === "/payments/bulk-approve"));
 
   // Allow accountant and admin to manage fines (POST /users/:userId/fines, DELETE /users/:userId/fines/:fineId, POST /fines/apply-daily)
   const isFineAction = req.path.includes("/fines") || req.path.endsWith("/fines");
@@ -250,6 +258,23 @@ router.put(
 );
 
 router.put(
+  "/users/:userId/security-deposit",
+  validate(Joi.object({ amount: Joi.number().min(0).required() })),
+  async (req, res, next) => {
+    try {
+      const result = await adminService.updateSecurityDeposit(
+        req.params.userId,
+        req.validatedBody.amount,
+        req.user.basicInfo.userId
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.put(
   "/users/:userId/notes",
   validate(Joi.object({ note: Joi.string().min(1).max(1000).required() })),
   async (req, res, next) => {
@@ -313,6 +338,69 @@ router.put(
         req.user.basicInfo.userId,
         req.validatedBody.reason
       );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/payments/reconcile",
+  uploadCsv.single("file"),
+  async (req, res, next) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: "No statement file uploaded" });
+      }
+
+      // 1. Upload to S3 for persistent audit trail
+      let s3Url = null;
+      try {
+        s3Url = await uploadToS3(req.file, "bank-statements");
+      } catch (s3Err) {
+        console.error("[RECONCILE] S3 upload failed:", s3Err);
+        // Fallback: we still proceed with reconciliation even if S3 upload fails
+      }
+
+      // 2. Perform reconciliation
+      const customMapping = req.body.mapping ? JSON.parse(req.body.mapping) : null;
+      const result = await adminService.reconcileStatement(req.file.buffer, customMapping);
+
+      // Log the admin action
+      logAdminAction(
+        "RECONCILE_BANK_STATEMENT",
+        req.user.basicInfo.userId,
+        null,
+        {
+          fileName: req.file.originalname,
+          fileSize: req.file.size,
+          s3Url,
+          mappingRequired: result.mappingRequired
+        }
+      );
+
+      res.json({ success: true, data: { ...result, s3Url } });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/payments/bulk-approve",
+  validate(Joi.object({
+    approvals: Joi.array().items(
+      Joi.object({
+        userId: Joi.string().required(),
+        paymentId: Joi.string().required()
+      })
+    ).required()
+  })),
+  async (req, res, next) => {
+    try {
+      const { approvals } = req.validatedBody;
+      const result = await adminService.bulkApprovePayments(approvals, req.user.basicInfo.userId);
       res.json({ success: true, data: result });
     } catch (err) {
       next(err);
@@ -1048,5 +1136,15 @@ router.post(
     }
   }
 );
+
+router.post("/create-student", async (req, res, next) => {
+  try {
+    const adminUserId = req.user?.basicInfo?.userId || "ADMIN";
+    const result = await adminService.createStudentByAdmin(req.body, adminUserId);
+    res.json({ success: true, message: "Student profile created successfully", data: result });
+  } catch (err) {
+    next(err);
+  }
+});
 
 module.exports = router;
