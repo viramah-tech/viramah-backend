@@ -67,6 +67,20 @@ const roomDetailsSchema = new Schema(
   { _id: false }
 );
 
+const transportPassSchema = new Schema(
+  {
+    isOptedIn: { type: Boolean, default: false },
+    stopId: { type: Schema.Types.ObjectId, ref: "TransportStop", default: null },
+    stopName: { type: String, default: null },
+    billingCycle: { type: String, enum: ["monthly", "yearly"], default: "monthly" },
+    feeAmount: { type: Number, default: 0 },
+    subscribedAt: Date,
+    validUntil: Date,
+    status: { type: String, enum: ["active", "cancelled"], default: "cancelled" },
+  },
+  { _id: false }
+);
+
 const verificationSchema = new Schema(
   {
     emailVerified: { type: Boolean, default: false },
@@ -275,6 +289,7 @@ const userSchema = new Schema(
     userIdProof: idProofSubSchema,
     guardianDetails: guardianSchema,
     roomDetails: { type: roomDetailsSchema, default: () => ({}) },
+    transportPass: { type: transportPassSchema, default: () => ({}) },
     verification: { type: verificationSchema, default: () => ({}) },
     onboarding: { type: onboardingSchema, default: () => ({}) },
     paymentDetails: { type: [paymentRecordSchema], default: [] },

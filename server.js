@@ -10,6 +10,10 @@ const start = async () => {
   const { runSalesAgentMigration } = require("./src/utils/migration");
   await runSalesAgentMigration();
 
+  // Seed transport drop points if empty
+  const seedTransportStops = require("./src/scripts/seed_transport_stops");
+  await seedTransportStops();
+
   // Start background email worker
   const { startEmailWorker } = require("./src/utils/emailWorker");
   startEmailWorker();

@@ -133,14 +133,30 @@ const validatePaymentMethod = (method) => {
 };
 
 /**
- * Validate transaction ID
+ * Validate transaction ID & check UTR uniqueness across all users
  */
-const validateTransactionId = (transactionId) => {
+const validateTransactionId = async (transactionId) => {
   if (!transactionId || typeof transactionId !== "string" || transactionId.trim().length === 0) {
-    throw new ValidationError("Transaction ID is required");
+    throw new ValidationError("Transaction ID / UTR Number is required");
   }
-  if (transactionId.length > 100) {
+  const cleanTxn = transactionId.trim();
+  if (cleanTxn.length > 100) {
     throw new ValidationError("Transaction ID is too long (max 100 characters)");
+  }
+
+  // Check if UTR / Transaction ID was already submitted in any user's paymentDetails
+  const User = require("../models/User");
+  const existingPayment = await User.findOne({
+    "paymentDetails": {
+      $elemMatch: {
+        transactionId: cleanTxn,
+        status: { $ne: "rejected" } // Allow retry only if previous transaction was rejected
+      }
+    }
+  });
+
+  if (existingPayment) {
+    throw new ConflictError("This Transaction UTR / Reference ID has already been submitted and cannot be reused.");
   }
 };
 
@@ -177,7 +193,7 @@ const submitBookingPayment = async (user, data) => {
   }
 
   validatePaymentMethod(data.method);
-  validateTransactionId(data.transactionId);
+  await validateTransactionId(data.transactionId);
   validateProofUrl(data.proofUrl);
 
   const amount = Number(data.amount);
@@ -236,7 +252,7 @@ const submitFinalPayment = async (user, data) => {
   }
 
   validatePaymentMethod(data.method);
-  validateTransactionId(data.transactionId);
+  await validateTransactionId(data.transactionId);
   validateProofUrl(data.proofUrl);
 
   const summaryKey = CATEGORY_MAP[data.category];
