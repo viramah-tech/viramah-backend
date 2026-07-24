@@ -1,7 +1,7 @@
 {
   "name": "viramah-backend",
   "version": "1.0.0",
-  "description": "Viramah Hostel Management Backend",
+  "description": "Viramah Management Backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
