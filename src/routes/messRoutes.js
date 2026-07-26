@@ -115,7 +115,17 @@ router.get("/results", async (req, res) => {
 router.get("/poll/active", async (req, res) => {
   try {
     const userId = req.query.userId || null;
+    const role = req.query.role || "student";
     const pollData = await messService.getActiveMonthlyPoll(userId);
+
+    // Strip voter names for non-admin callers
+    if (role !== "admin" && pollData.optionsWithTally) {
+      pollData.optionsWithTally = pollData.optionsWithTally.map((opt) => {
+        const { voters, ...rest } = opt;
+        return rest;
+      });
+    }
+
     res.json({ success: true, data: pollData });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
