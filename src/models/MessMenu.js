@@ -18,19 +18,16 @@ const messMenuSchema = new mongoose.Schema(
       breakfast: {
         startTime: { type: String, default: "08:00 AM" },
         endTime: { type: String, default: "10:00 AM" },
-        votingDeadline: { type: String, default: "22:00" }, // 10 PM previous day
         options: [mealOptionSchema],
       },
       snacks: {
         startTime: { type: String, default: "05:00 PM" },
         endTime: { type: String, default: "06:30 PM" },
-        votingDeadline: { type: String, default: "14:00" }, // 2 PM same day
         options: [mealOptionSchema],
       },
       dinner: {
         startTime: { type: String, default: "08:00 PM" },
         endTime: { type: String, default: "10:00 PM" },
-        votingDeadline: { type: String, default: "17:00" }, // 5 PM same day
         options: [mealOptionSchema],
       },
     },
@@ -40,4 +37,4 @@ const messMenuSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-module.exports = mongoose.model("MessMenu", messMenuSchema);
+module.exports = mongoose.models.MessMenu || mongoose.model("MessMenu", messMenuSchema);

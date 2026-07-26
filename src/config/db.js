@@ -129,18 +129,28 @@ const connectDB = async () => {
           await mongoose.disconnect().catch(() => {});
         }
       } else {
-        // Default DNS works, use the SRV URI directly
-        try {
-          console.log("[DB] Attempting connection using MONGODB_URI (SRV)...");
-          resolvedMongoUri = primaryUri;
-          await mongoose.connect(primaryUri, options);
-          await mongoose.connection.db.admin().ping();
-          console.log("MongoDB connected successfully (Atlas SRV)");
-          return;
-        } catch (primaryErr) {
-          console.error("[DB] Connection using MONGODB_URI failed:", primaryErr.message);
-          await mongoose.disconnect().catch(() => {});
+    // Try the provided primary URI first with automatic retry loop (up to 5 attempts)
+    let attempts = 0;
+    const maxAttempts = 5;
+
+    while (attempts < maxAttempts) {
+      attempts++;
+      try {
+        console.log(`[DB] Attempting connection to MongoDB Atlas (Attempt ${attempts}/${maxAttempts})...`);
+        resolvedMongoUri = primaryUri;
+        await mongoose.connect(primaryUri, options);
+        await mongoose.connection.db.admin().ping();
+        console.log("MongoDB connected successfully (Atlas SRV)");
+        return;
+      } catch (primaryErr) {
+        console.error(`[DB] Connection attempt ${attempts} failed:`, primaryErr.message);
+        await mongoose.disconnect().catch(() => {});
+        if (attempts < maxAttempts) {
+          console.log(`[DB] Retrying in 2 seconds...`);
+          await new Promise((r) => setTimeout(r, 2000));
         }
+      }
+    }
       }
     } else {
       // Non-SRV URI, connect directly

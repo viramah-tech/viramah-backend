@@ -19,69 +19,42 @@ const createDefaultMenuForDate = async (dateStr) => {
       breakfast: {
         startTime: "08:00 AM",
         endTime: "10:00 AM",
-        votingDeadline: "22:00",
         options: [
           {
             optionId: "b_opt_1",
-            title: "Aloo Paratha & Curd Special",
-            description: "Punjabi Aloo Parathas with Amul Butter, Fresh Curd, Pickle & Ginger Tea",
-            dishes: ["2x Aloo Stuffed Paratha", "Amul Butter Cube", "Fresh Sweet Curd", "Mango Pickle", "Hot Ginger Tea"],
+            title: "Aloo Paratha & Fresh Curd",
+            description: "Punjabi Aloo Parathas with Amul Butter, Fresh Curd, Pickle & Tea",
+            dishes: ["Aloo Stuffed Paratha (2x)", "Amul Butter Cube", "Fresh Sweet Curd", "Hot Ginger Tea"],
             isVeg: true,
             calories: 420,
-          },
-          {
-            optionId: "b_opt_2",
-            title: "Indori Poha & Jalebi Special",
-            description: "Spiced Poha with Ratlami Sev, Fresh Jalebi, Banana & Special Chai",
-            dishes: ["Indori Kanda Poha", "Ratlami Sev & Anar", "2x Sweet Crispy Jalebi", "Fresh Banana", "Special Masala Chai"],
-            isVeg: true,
-            calories: 360,
           },
         ],
       },
       snacks: {
         startTime: "05:00 PM",
         endTime: "06:30 PM",
-        votingDeadline: "14:00",
         options: [
           {
             optionId: "s_opt_1",
-            title: "Hot Samosa & Mint Chutney",
-            description: "Crispy Potato Samosas with Green Mint Chutney, Sweet Imli Chutney & Chai",
-            dishes: ["2x Crispy Potato Samosa", "Pudina Green Chutney", "Khatta Meetha Imli Chutney", "Kulhad Masala Chai"],
+            title: "Crispy Samosa & Masala Chai",
+            description: "Hot Potato Samosas with Mint & Imli Chutney, Masala Chai",
+            dishes: ["Hot Potato Samosa (2x)", "Pudina Chutney", "Sweet Imli Chutney", "Kulhad Masala Chai"],
             isVeg: true,
             calories: 280,
-          },
-          {
-            optionId: "s_opt_2",
-            title: "Veg Cheese Grilled Sandwich",
-            description: "Butter Toast Sandwich with Capsicum, Onion, Cheese & Cold Coffee",
-            dishes: ["2x Veg Cheese Sandwich", "Tomato Ketchup", "Creamy Cold Coffee"],
-            isVeg: true,
-            calories: 310,
           },
         ],
       },
       dinner: {
         startTime: "08:00 PM",
         endTime: "10:00 PM",
-        votingDeadline: "17:00",
         options: [
           {
             optionId: "d_opt_1",
-            title: "Kashmiri Rajma Chawal Thali",
-            description: "Slow-cooked Kashmiri Rajma, Steamed Basmati Rice, Tawa Roti, Salad & Sweet",
-            dishes: ["Kashmiri Special Rajma", "Steamed Basmati Rice", "4x Butter Tawa Roti", "Green Cucumber Salad", "Gulab Jamun"],
+            title: "Kashmiri Rajma Chawal & Gulab Jamun",
+            description: "Slow-cooked Kashmiri Rajma, Steamed Basmati Rice, Tawa Roti & Sweet",
+            dishes: ["Kashmiri Special Rajma", "Steamed Basmati Rice", "Tawa Roti (4x)", "Gulab Jamun (1x)"],
             isVeg: true,
             calories: 620,
-          },
-          {
-            optionId: "d_opt_2",
-            title: "Dal Makhani & Veg Pulao Feast",
-            description: "Creamy Dal Makhani, Mixed Vegetable Pulao, Butter Naan & Dessert",
-            dishes: ["Amritsari Dal Makhani", "Jeera Veg Pulao", "2x Butter Naan", "Bundi Raita", "Vanilla Ice Cream"],
-            isVeg: true,
-            calories: 650,
           },
         ],
       },
@@ -91,7 +64,6 @@ const createDefaultMenuForDate = async (dateStr) => {
   try {
     return await MessMenu.create(defaultMenu);
   } catch (err) {
-    // If concurrent creation happened, fetch existing
     return await MessMenu.findOne({ date: dateStr });
   }
 };
@@ -228,7 +200,6 @@ const getVotingResults = async (dateStr = getTodayStr()) => {
       }
     });
 
-    // Calculate percentages
     Object.values(tally).forEach((opt) => {
       opt.percentage = catTotalVotes > 0 ? Math.round((opt.votes / catTotalVotes) * 100) : 0;
     });
@@ -236,7 +207,6 @@ const getVotingResults = async (dateStr = getTodayStr()) => {
     results.categories[cat] = {
       startTime: mealInfo.startTime,
       endTime: mealInfo.endTime,
-      votingDeadline: mealInfo.votingDeadline,
       totalVotes: catTotalVotes,
       options: Object.values(tally),
     };
@@ -250,7 +220,6 @@ const getVotingResults = async (dateStr = getTodayStr()) => {
 const MessPoll = require("../models/MessPoll");
 const MessPollVote = require("../models/MessPollVote");
 
-// Create Default Monthly Poll if none exists
 const createDefaultMonthlyPoll = async () => {
   const currentMonth = new Date().toLocaleString("en-US", { month: "long", year: "numeric" });
   return await MessPoll.create({
@@ -263,29 +232,21 @@ const createDefaultMonthlyPoll = async () => {
       {
         optionId: "plan_a",
         title: "Plan A — North & South Fusion Thali",
-        description: "Balanced mix of Punjabi Parathas, South Indian Dosa/Idli breakfasts, Kashmiri Rajma & Paneer specials",
+        description: "Balanced mix of Punjabi Parathas, South Indian Dosa/Idli breakfasts, Kashmiri Rajma & Evening Tea Snacks",
         image: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800",
-        highlights: ["Aloo Paratha & Poha", "Rajma Chawal & Dal Makhani", "Veg Biryani & Gulab Jamun"],
+        highlights: ["Aloo Paratha & Poha", "Kashmiri Rajma & Dal Makhani", "Samosa & Chai", "Gulab Jamun"],
       },
       {
         optionId: "plan_b",
         title: "Plan B — Deluxe Continental & Indian Menu",
-        description: "Includes Cheese Sandwiches, Chole Bhature, Kadai Paneer, Hakka Noodle High Tea & Ice Cream desserts",
+        description: "Includes Cheese Sandwiches, Chole Bhature, Kadai Paneer, Veg Noodles Snacks & Ice Cream desserts",
         image: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800",
-        highlights: ["Cheese Toast & Chole Bhature", "Kadai Paneer & Butter Naan", "Hakka Noodles & Brownie"],
-      },
-      {
-        optionId: "plan_c",
-        title: "Plan C — Healthy Fitness & High Protein Menu",
-        description: "High protein sprout salads, Oats Poha, Soybean Curry, Brown Rice, Paneer Tikka & Seasonal Fruit Juices",
-        image: "https://images.unsplash.com/photo-1540420773420-3366772f4999?w=800",
-        highlights: ["Sprout Salads & Oats Poha", "Soybean Curry & Brown Rice", "Paneer Tikka & Fresh Juices"],
+        highlights: ["Cheese Toast & Chole Bhature", "Kadai Paneer & Dal Makhani", "Spring Roll Snacks", "Ice Cream"],
       },
     ],
   });
 };
 
-// Get current active monthly poll with WhatsApp style tally & student vote
 const getActiveMonthlyPoll = async (userId = null) => {
   let poll = await MessPoll.findOne({ status: "active" }).sort({ createdAt: -1 });
 
@@ -330,9 +291,7 @@ const getActiveMonthlyPoll = async (userId = null) => {
   };
 };
 
-// Create new monthly poll
 const createMonthlyPoll = async (pollData, createdBy = "Mess Incharge") => {
-  // Archive existing active polls
   await MessPoll.updateMany({ status: "active" }, { status: "closed" });
 
   return await MessPoll.create({
@@ -345,7 +304,6 @@ const createMonthlyPoll = async (pollData, createdBy = "Mess Incharge") => {
   });
 };
 
-// Cast WhatsApp-style vote on monthly poll
 const castMonthlyPollVote = async ({ pollId, userId, studentName, roomNumber, optionId }) => {
   let vote = await MessPollVote.findOne({ pollId, userId });
 
@@ -367,7 +325,6 @@ const castMonthlyPollVote = async ({ pollId, userId, studentName, roomNumber, op
   return vote;
 };
 
-// Close poll and declare winning menu plan
 const closePollAndDeclareWinner = async (pollId) => {
   const poll = await MessPoll.findById(pollId);
   if (!poll) throw new Error("Poll not found");
@@ -408,4 +365,3 @@ module.exports = {
   castMonthlyPollVote,
   closePollAndDeclareWinner,
 };
-

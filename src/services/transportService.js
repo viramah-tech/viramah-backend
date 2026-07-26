@@ -1,24 +1,56 @@
 const TransportStop = require("../models/TransportStop");
 const User = require("../models/User");
 const { recalculateGrandTotal } = require("../utils/waterfall");
-const { NotFoundError, ValidationError } = require("../utils/errors");
+const { NotFoundError, ValidationError, BadRequestError } = require("../utils/errors");
+
+const GST_RATE = 0.18; // 18% GST for Transport Services
 
 class TransportService {
   /**
-   * Get all bus stops / drop points
+   * Helper to format stop prices with 18% GST breakdown
    */
-  async getAllStops(includeInactive = false) {
-    const query = includeInactive ? {} : { isActive: true };
-    return await TransportStop.find(query).sort({ createdAt: -1 });
+  formatStopWithGST(stop) {
+    const obj = stop.toObject ? stop.toObject() : { ...stop };
+    const monthlyBase = Number(obj.monthlyPrice) || 2000;
+    const monthlyGst = Math.round(monthlyBase * GST_RATE);
+    const monthlyTotal = monthlyBase + monthlyGst;
+
+    const yearlyBase = Number(obj.yearlyPrice) || 20000;
+    const yearlyGst = Math.round(yearlyBase * GST_RATE);
+    const yearlyTotal = yearlyBase + yearlyGst;
+
+    return {
+      ...obj,
+      gstRatePct: 18,
+      monthly: {
+        basePrice: monthlyBase,
+        gstAmount: monthlyGst,
+        totalWithGst: monthlyTotal,
+      },
+      yearly: {
+        basePrice: yearlyBase,
+        gstAmount: yearlyGst,
+        totalWithGst: yearlyTotal,
+      },
+    };
   }
 
   /**
-   * Get stop by ID
+   * Get all bus stops / drop points with 18% GST breakdown
+   */
+  async getAllStops(includeInactive = false) {
+    const query = includeInactive ? {} : { isActive: true };
+    const stops = await TransportStop.find(query).sort({ createdAt: -1 });
+    return stops.map((s) => this.formatStopWithGST(s));
+  }
+
+  /**
+   * Get stop by ID with 18% GST breakdown
    */
   async getStopById(id) {
     const stop = await TransportStop.findById(id);
     if (!stop) throw new NotFoundError("Transport stop not found");
-    return stop;
+    return this.formatStopWithGST(stop);
   }
 
   /**
@@ -35,7 +67,8 @@ class TransportService {
       description: data.description || "",
       isActive: data.isActive !== undefined ? Boolean(data.isActive) : true,
     });
-    return await stop.save();
+    const saved = await stop.save();
+    return this.formatStopWithGST(saved);
   }
 
   /**
@@ -53,7 +86,8 @@ class TransportService {
     if (data.description !== undefined) stop.description = data.description;
     if (data.isActive !== undefined) stop.isActive = Boolean(data.isActive);
 
-    return await stop.save();
+    const saved = await stop.save();
+    return this.formatStopWithGST(saved);
   }
 
   /**
@@ -66,7 +100,7 @@ class TransportService {
   }
 
   /**
-   * Student: Subscribe to a drop point with monthly or yearly billing plan
+   * Student: Subscribe to a drop point with 18% additional GST
    */
   async subscribePass(userId, { stopId, billingCycle = "monthly" }) {
     const user = await User.findOne({ "basicInfo.userId": userId }) || await User.findById(userId);
@@ -76,7 +110,9 @@ class TransportService {
     if (!stop || !stop.isActive) throw new ValidationError("Selected drop point is invalid or inactive");
 
     const cycle = billingCycle === "yearly" ? "yearly" : "monthly";
-    const feeAmount = cycle === "yearly" ? stop.yearlyPrice : stop.monthlyPrice;
+    const baseFee = cycle === "yearly" ? stop.yearlyPrice : stop.monthlyPrice;
+    const gstAmount = Math.round(baseFee * GST_RATE);
+    const totalFeeWithGst = baseFee + gstAmount;
 
     const now = new Date();
     const validUntil = new Date(now);
@@ -92,7 +128,10 @@ class TransportService {
       stopId: stop._id,
       stopName: stop.name,
       billingCycle: cycle,
-      feeAmount,
+      basePrice: baseFee,
+      gstRatePct: 18,
+      gstAmount: gstAmount,
+      feeAmount: totalFeeWithGst,
       subscribedAt: now,
       validUntil,
       status: "active",
@@ -109,27 +148,28 @@ class TransportService {
     }
 
     const currentPaid = user.paymentSummary.transportFee.paid || 0;
-    user.paymentSummary.transportFee.total = feeAmount;
-    user.paymentSummary.transportFee.remaining = Math.max(0, feeAmount - currentPaid);
+    user.paymentSummary.transportFee.basePrice = baseFee;
+    user.paymentSummary.transportFee.gstAmount = gstAmount;
+    user.paymentSummary.transportFee.total = totalFeeWithGst;
+    user.paymentSummary.transportFee.remaining = Math.max(0, totalFeeWithGst - currentPaid);
 
     recalculateGrandTotal(user.paymentSummary);
     await user.save();
 
     return {
-      message: "Transport pass booked successfully",
+      message: "Transport pass booked successfully with 18% GST",
       transportPass: user.transportPass,
       paymentSummary: user.paymentSummary,
     };
   }
 
   /**
-   * Student: Cancel active transport pass (Only before payment)
+   * Student: Cancel active transport pass
    */
   async cancelPass(userId) {
     const user = await User.findOne({ "basicInfo.userId": userId }) || await User.findById(userId);
     if (!user) throw new NotFoundError("Student record not found");
 
-    // Check if transport pass fee has already been paid
     const currentPaid = user.paymentSummary?.transportFee?.paid || 0;
     const hasApprovedPayment = Array.isArray(user.paymentDetails) && user.paymentDetails.some(
       (p) => p.category === "transport" && ["approved", "completed", "confirmed", "paid"].includes((p.status || "").toLowerCase())
@@ -139,24 +179,23 @@ class TransportService {
       throw new BadRequestError("Transport pass cannot be cancelled after payment has been made. Please contact admin for cancellation support.");
     }
 
-    // Reset transport pass details
     user.transportPass.isOptedIn = false;
     user.transportPass.status = "cancelled";
     user.transportPass.feeAmount = 0;
+    user.transportPass.basePrice = 0;
+    user.transportPass.gstAmount = 0;
 
     if (user.roomDetails) {
       user.roomDetails.includeTransport = false;
     }
 
-    // Reset financial ledger paymentSummary.transportFee
     if (user.paymentSummary && user.paymentSummary.transportFee) {
       const currentPaid = user.paymentSummary.transportFee.paid || 0;
-      user.paymentSummary.transportFee.total = currentPaid; // Lock total to already paid amount
-      user.paymentSummary.transportFee.remaining = 0; // Completely remove pending transport fee balance
+      user.paymentSummary.transportFee.total = currentPaid;
+      user.paymentSummary.transportFee.remaining = 0;
       recalculateGrandTotal(user.paymentSummary);
     }
 
-    // Remove any pending unapproved transport payment records from paymentDetails
     if (Array.isArray(user.paymentDetails)) {
       user.paymentDetails = user.paymentDetails.filter(
         (p) => !(p.category === "transport" && p.status === "pending")
@@ -165,7 +204,7 @@ class TransportService {
 
     await user.save();
     return {
-      message: "Transport pass cancelled successfully and pending transport fees removed",
+      message: "Transport pass cancelled successfully",
       transportPass: user.transportPass,
       paymentSummary: user.paymentSummary,
     };
@@ -188,6 +227,8 @@ class TransportService {
       roomNumber: u.roomDetails?.roomNumber || "N/A",
       stopName: u.transportPass?.stopName,
       billingCycle: u.transportPass?.billingCycle,
+      basePrice: u.transportPass?.basePrice || u.transportPass?.feeAmount,
+      gstAmount: u.transportPass?.gstAmount || 0,
       feeAmount: u.transportPass?.feeAmount,
       subscribedAt: u.transportPass?.subscribedAt,
       validUntil: u.transportPass?.validUntil,

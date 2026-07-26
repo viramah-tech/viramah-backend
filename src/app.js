@@ -55,7 +55,8 @@ const otpLimiter = rateLimit({
 
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 150,
+  max: 3000,
+  skip: (req) => req.path.includes("/attendance") || req.path.includes("/iclock") || req.path.includes("/cdata"),
   standardHeaders: true,
   legacyHeaders: false,
   handler: jsonRateLimitHandler(),
@@ -64,6 +65,7 @@ const globalLimiter = rateLimit({
 app.use(globalLimiter);
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
+app.use(express.text({ type: "*/*", limit: "2mb" }));
 const { getResolvedMongoUri } = require("./config/db");
 app.use(createSessionMiddleware(getResolvedMongoUri()));
 
@@ -109,6 +111,9 @@ app.use("/api/website", websiteRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/mess", messRoutes);
 app.use("/api/transport", transportRoutes);
+
+const maintenanceRoutes = require("./routes/maintenanceRoutes");
+app.use("/api/maintenance", maintenanceRoutes);
 
 // 404
 app.use((req, res, next) => {
