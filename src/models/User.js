@@ -188,6 +188,9 @@ const paymentRecordSchema = new Schema(
 
 const ledgerEntrySchema = new Schema(
   {
+    basePrice: { type: Number, default: 0 },
+    gstAmount: { type: Number, default: 0 },
+    gstRatePct: { type: Number, default: 18 },
     total: { type: Number, default: 0 },
     paid: { type: Number, default: 0 },
     remaining: { type: Number, default: 0 },

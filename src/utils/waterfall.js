@@ -17,13 +17,6 @@ const MAP_PAYMENT_CATEGORY_TO_SUMMARY_KEY = {
 
 /**
  * Flexible Payment Allocation with Dynamic Spillover.
- * Allocates incoming payment to targeted category first (e.g. securityDeposit or roomRent),
- * and dynamically spills over any remaining amount to fill unpaid dues in roomRent or other categories!
- *
- * @param {number} amount - Total payment amount
- * @param {object} summary - User's paymentSummary object
- * @param {string} [targetCategory] - Optional target category (e.g. "security_deposit", "room_rent")
- * @returns {object} breakdown - Allocation across categories
  */
 const allocateWaterfall = (amount, summary, targetCategory = null) => {
   if (typeof amount !== "number" || Number.isNaN(amount) || amount <= 0) {
@@ -34,7 +27,6 @@ const allocateWaterfall = (amount, summary, targetCategory = null) => {
     throw new ValidationError("Payment summary is not initialized");
   }
 
-  // Ensure grandTotal is calculated and non-undefined
   recalculateGrandTotal(summary);
 
   const grandRemaining = summary.grandTotal?.remaining ?? amount;
@@ -52,19 +44,17 @@ const allocateWaterfall = (amount, summary, targetCategory = null) => {
 
   const targetKey = targetCategory ? (MAP_PAYMENT_CATEGORY_TO_SUMMARY_KEY[targetCategory] || targetCategory) : null;
 
-  // Step 1: Allocate to specified targetCategory first if valid and has remaining dues
   if (targetKey && summary[targetKey] && summary[targetKey].remaining > 0 && remaining > 0) {
     const alloc = Math.min(remaining, summary[targetKey].remaining);
     breakdown[targetKey] = alloc;
     remaining -= alloc;
   }
 
-  // Step 2: Dynamic Spillover into other unpaid categories (roomRent, securityDeposit, etc.)
   const priorityOrder = ["roomRent", "securityDeposit", "registrationFee", "messFee", "transportFee", "fines"];
 
   for (const cat of priorityOrder) {
     if (remaining <= 0) break;
-    if (cat === targetKey) continue; // Already processed in Step 1
+    if (cat === targetKey) continue;
 
     if (summary[cat] && summary[cat].remaining > 0) {
       const alloc = Math.min(remaining, summary[cat].remaining);
@@ -73,7 +63,6 @@ const allocateWaterfall = (amount, summary, targetCategory = null) => {
     }
   }
 
-  // If there's still leftover amount after all categories are 0 remaining (overpayment cushion)
   if (remaining > 0) {
     const fallbackKey = targetKey && breakdown[targetKey] !== undefined ? targetKey : "roomRent";
     breakdown[fallbackKey] += remaining;
@@ -84,33 +73,54 @@ const allocateWaterfall = (amount, summary, targetCategory = null) => {
 
 /**
  * Recalculate grandTotal total, paid, and remaining fields based on individual category ledgers.
- * Ensure isFullyPaid is synchronized.
- *
- * @param {object} summary - User's paymentSummary object
+ * GST is applied ONLY to the transportFee (18% GST).
  */
 const recalculateGrandTotal = (summary) => {
   if (!summary) return;
   const categories = ["registrationFee", "securityDeposit", "roomRent", "messFee", "transportFee", "fines"];
 
+  let basePriceSum = 0;
+  let gstAmountSum = 0;
   let totalSum = 0;
   let paidSum = 0;
   let remainingSum = 0;
 
   for (const cat of categories) {
     if (summary[cat]) {
-      totalSum += summary[cat].total || 0;
+      const catTotal = summary[cat].total || 0;
+      let catBase = catTotal;
+      let catGst = 0;
+
+      // GST is applied ONLY to transportFee
+      if (cat === "transportFee" && catTotal > 0) {
+        catBase = summary[cat].basePrice || Math.round(catTotal / 1.18);
+        catGst = summary[cat].gstAmount || (catTotal - catBase);
+        summary[cat].basePrice = catBase;
+        summary[cat].gstAmount = catGst;
+        summary[cat].gstRatePct = 18;
+      } else if (summary[cat]) {
+        summary[cat].basePrice = catTotal;
+        summary[cat].gstAmount = 0;
+        summary[cat].gstRatePct = 0;
+      }
+
+      basePriceSum += catBase;
+      gstAmountSum += catGst;
+      totalSum += catTotal;
       paidSum += summary[cat].paid || 0;
       remainingSum += summary[cat].remaining || 0;
     }
   }
 
   if (!summary.grandTotal) {
-    summary.grandTotal = { total: 0, paid: 0, remaining: 0 };
+    summary.grandTotal = { basePrice: 0, gstAmount: 0, total: 0, paid: 0, remaining: 0 };
   }
 
+  summary.grandTotal.basePrice = basePriceSum;
+  summary.grandTotal.gstAmount = gstAmountSum;
   summary.grandTotal.total = totalSum;
   summary.grandTotal.paid = paidSum;
-  summary.grandTotal.remaining = Math.max(0, remainingSum); // Ensure non-negative remaining
+  summary.grandTotal.remaining = Math.max(0, remainingSum);
   summary.isFullyPaid = summary.grandTotal.remaining <= 0;
 };
 
@@ -123,7 +133,6 @@ const reapplyApprovedPayments = (user) => {
 
   const categories = ["registrationFee", "securityDeposit", "roomRent", "messFee", "transportFee", "fines"];
 
-  // 1. Reset all paid and remaining values to total
   for (const cat of categories) {
     if (summary[cat]) {
       summary[cat].paid = 0;
@@ -133,7 +142,6 @@ const reapplyApprovedPayments = (user) => {
 
   recalculateGrandTotal(summary);
 
-  // 2. Loop through all approved payments and apply them
   const approvedPayments = (user.paymentDetails || []).filter((p) => p.status === "approved");
 
   for (const p of approvedPayments) {
@@ -149,7 +157,6 @@ const reapplyApprovedPayments = (user) => {
       breakdown = { registrationFee: 0, securityDeposit: 0, roomRent: 0, messFee: 0, transportFee: 0, fines: 0 };
     }
 
-    // Apply the breakdown
     for (const cat of categories) {
       const alloc = breakdown[cat] || 0;
       if (alloc > 0 && summary[cat]) {
