@@ -63,9 +63,9 @@ const globalLimiter = rateLimit({
 });
 
 app.use(globalLimiter);
-app.use(express.json({ limit: "2mb" }));
-app.use(express.urlencoded({ extended: true }));
-app.use(express.text({ type: "*/*", limit: "2mb" }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(express.text({ type: "text/plain", limit: "2mb" }));
 const { getResolvedMongoUri } = require("./config/db");
 app.use(createSessionMiddleware(getResolvedMongoUri()));
 
@@ -133,11 +133,19 @@ app.use((err, req, res, next) => {
     });
   }
 
-  // Multer / file size errors
-  if (err && err.name === "MulterError") {
+  // Multer / file upload stream errors
+  if (err && (err.name === "MulterError" || err.message?.includes("Unexpected end of form"))) {
     return res.status(400).json({
       success: false,
-      error: { message: err.message, code: "UPLOAD_ERROR" },
+      error: { message: err.message || "File upload stream error", code: "UPLOAD_ERROR" },
+    });
+  }
+
+  // Express body parser payload size limit error
+  if (err && (err.type === "entity.too.large" || err.status === 413)) {
+    return res.status(413).json({
+      success: false,
+      error: { message: "Request payload size exceeds maximum allowed limit", code: "PAYLOAD_TOO_LARGE" },
     });
   }
 

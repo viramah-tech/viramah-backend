@@ -17,6 +17,7 @@ const CATEGORY_MAP = {
   mess: "messFee",
   transport: "transportFee",
   security_deposit: "securityDeposit",
+  registration_fee: "registrationFee",
   fine: "fines",
   all: "grandTotal",
 };

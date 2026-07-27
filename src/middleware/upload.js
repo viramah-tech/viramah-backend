@@ -22,10 +22,13 @@ const upload = multer({
 });
 
 const uploadToS3 = async (file, folder) => {
+  if (!file) {
+    throw new ValidationError("No file provided for upload");
+  }
   if (!bucketName || !process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
     console.warn("[UPLOAD] S3 not configured; falling back to data URL for", folder);
     const mime = file.mimetype || "application/octet-stream";
-    const base64 = file.buffer.toString("base64");
+    const base64 = file.buffer ? file.buffer.toString("base64") : "";
     return `data:${mime};base64,${base64}`;
   }
   

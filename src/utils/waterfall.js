@@ -50,7 +50,7 @@ const allocateWaterfall = (amount, summary, targetCategory = null) => {
     remaining -= alloc;
   }
 
-  const priorityOrder = ["roomRent", "securityDeposit", "registrationFee", "messFee", "transportFee", "fines"];
+  const priorityOrder = ["registrationFee", "securityDeposit", "roomRent", "messFee", "transportFee", "fines"];
 
   for (const cat of priorityOrder) {
     if (remaining <= 0) break;
