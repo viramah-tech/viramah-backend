@@ -360,20 +360,51 @@ router.get("/tenants", async (req, res, next) => {
   }
 });
 
-// View available rooms for assignment
+// View available rooms for assignment with bed details
 router.get("/available-rooms", async (req, res, next) => {
   try {
     const rooms = await Room.find({ status: "Available" }).populate("roomType", "name");
-    res.json({ success: true, data: rooms });
+    const User = require("../models/User");
+
+    const roomsWithBeds = await Promise.all(
+      rooms.map(async (room) => {
+        const occupants = await User.find({
+          "roomDetails.roomRef": room._id,
+          role: { $in: ["user", "tenant"] },
+          accountStatus: { $in: ["active", "pending"] }
+        }, "roomDetails.bedNumber basicInfo.fullName");
+
+        const takenBeds = occupants.map(o => o.roomDetails?.bedNumber).filter(Boolean);
+        const capacity = room.capacity || 1;
+
+        const beds = [];
+        for (let i = 1; i <= capacity; i++) {
+          const bedLabel = `Bed ${i}`;
+          const isOccupied = takenBeds.includes(bedLabel);
+          beds.push({
+            bedNumber: bedLabel,
+            bedIndex: i,
+            isOccupied
+          });
+        }
+
+        const roomObj = room.toObject();
+        roomObj.beds = beds;
+        roomObj.availableBeds = beds.filter(b => !b.isOccupied);
+        return roomObj;
+      })
+    );
+
+    res.json({ success: true, data: roomsWithBeds });
   } catch (error) {
     next(error);
   }
 });
 
-// Assign room to a tenant
+// Assign room and bed to a tenant
 router.put("/assign-room/:userId", async (req, res, next) => {
   try {
-    const { roomId } = req.body;
+    const { roomId, bedNumber } = req.body;
     
     const mongoose = require("mongoose");
     const query = mongoose.Types.ObjectId.isValid(req.params.userId)
@@ -382,11 +413,6 @@ router.put("/assign-room/:userId", async (req, res, next) => {
 
     const user = await User.findOne(query);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
-
-    // If already assigned to this exact room, return success immediately
-    if (user.roomDetails && user.roomDetails.roomRef && user.roomDetails.roomRef.toString() === roomId) {
-      return res.json({ success: true, message: "Room already assigned to this tenant" });
-    }
 
     // Handle Unassign request
     if (roomId === "unassign") {
@@ -403,6 +429,7 @@ router.put("/assign-room/:userId", async (req, res, next) => {
       
       user.roomDetails.roomRef = undefined;
       user.roomDetails.roomNumber = undefined;
+      user.roomDetails.bedNumber = undefined;
       user.roomDetails.status = "unassigned";
       user.roomDetails.allocationDate = undefined;
       
@@ -415,8 +442,29 @@ router.put("/assign-room/:userId", async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Room not available" });
     }
 
+    // Find current occupants in target room
+    const currentOccupants = await User.find({
+      "roomDetails.roomRef": room._id,
+      _id: { $ne: user._id },
+      role: { $in: ["user", "tenant"] },
+      accountStatus: { $in: ["active", "pending"] }
+    }, "roomDetails.bedNumber");
+
+    const takenBeds = currentOccupants.map(o => o.roomDetails?.bedNumber).filter(Boolean);
+    
+    let targetBed = bedNumber;
+    if (!targetBed) {
+      for (let i = 1; i <= room.capacity; i++) {
+        if (!takenBeds.includes(`Bed ${i}`)) {
+          targetBed = `Bed ${i}`;
+          break;
+        }
+      }
+    }
+    if (!targetBed) targetBed = "Bed 1";
+
     // Release old room occupancy if they had one
-    if (user.roomDetails && user.roomDetails.roomRef) {
+    if (user.roomDetails && user.roomDetails.roomRef && user.roomDetails.roomRef.toString() !== roomId) {
       const oldRoom = await Room.findById(user.roomDetails.roomRef);
       if (oldRoom) {
         oldRoom.currentOccupancy = Math.max(0, oldRoom.currentOccupancy - 1);
@@ -427,20 +475,23 @@ router.put("/assign-room/:userId", async (req, res, next) => {
       }
     }
 
-    // Allocate new room
+    // Allocate new room and bed
     user.roomDetails.roomRef = room._id;
     user.roomDetails.roomNumber = room.roomNumber;
+    user.roomDetails.bedNumber = targetBed;
     user.roomDetails.status = "assigned";
     user.roomDetails.allocationDate = new Date();
     
-    room.currentOccupancy += 1;
+    room.currentOccupancy = currentOccupants.length + 1;
     if (room.currentOccupancy >= room.capacity) {
       room.status = "Full";
+    } else {
+      room.status = "Available";
     }
 
     await Promise.all([user.save(), room.save()]);
 
-    res.json({ success: true, message: "Room assigned successfully" });
+    res.json({ success: true, message: `Room ${room.roomNumber} (${targetBed}) assigned successfully` });
   } catch (error) {
     next(error);
   }

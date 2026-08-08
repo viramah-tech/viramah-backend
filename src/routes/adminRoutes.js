@@ -726,31 +726,77 @@ router.get("/rooms", async (req, res, next) => {
     
     const rooms = await Room.find().populate("roomType", "name capacity");
     
-    // Dynamically calculate occupancy based on count of active users in the User collection
+    // Dynamically calculate occupancy and generate bed-by-bed mapping
     const updatedRooms = await Promise.all(
       rooms.map(async (room) => {
-        // Fetch active occupants reference by roomRef OR by matching roomNumber string
         const activeOccupants = await User.find({
           $or: [
             { "roomDetails.roomRef": room._id },
             { "roomDetails.roomNumber": room.roomNumber }
           ],
           role: { $in: ["user", "tenant"] },
-          accountStatus: "active"
-        }, "basicInfo.userId basicInfo.fullName basicInfo.email basicInfo.phone");
+          accountStatus: { $in: ["active", "pending"] }
+        }, "basicInfo.userId basicInfo.fullName basicInfo.email basicInfo.phone roomDetails");
 
-        const roomObj = room.toObject();
-        roomObj.currentOccupancy = activeOccupants.length;
-        
-        // Map occupants to simple list
-        roomObj.occupants = activeOccupants.map(occ => ({
+        const capacity = room.capacity || 1;
+
+        // Map occupants with explicit bedNumber
+        const occupants = activeOccupants.map((occ, idx) => ({
           userId: occ.basicInfo.userId,
           fullName: occ.basicInfo.fullName,
           email: occ.basicInfo.email,
-          phone: occ.basicInfo.phone
+          phone: occ.basicInfo.phone,
+          bedNumber: occ.roomDetails?.bedNumber || null
         }));
 
-        if (activeOccupants.length >= room.capacity) {
+        // Generate full bed breakdown for room (Bed 1, Bed 2, Bed 3, Bed 4 ...)
+        // Step 1: Place occupants that have an explicit bedNumber
+        const beds = [];
+        const assignedOccupantIds = new Set();
+
+        for (let i = 1; i <= capacity; i++) {
+          const bedLabel = `Bed ${i}`;
+          const exactMatch = occupants.find(o => o.bedNumber === bedLabel);
+          if (exactMatch) {
+            assignedOccupantIds.add(exactMatch.userId);
+            beds.push({
+              bedNumber: bedLabel,
+              bedIndex: i,
+              isOccupied: true,
+              occupant: exactMatch
+            });
+          } else {
+            beds.push({
+              bedNumber: bedLabel,
+              bedIndex: i,
+              isOccupied: false,
+              occupant: null
+            });
+          }
+        }
+
+        // Step 2: Place remaining occupants (no bedNumber / legacy) into first vacant beds
+        const unassigned = occupants.filter(o => !assignedOccupantIds.has(o.userId));
+        for (const occ of unassigned) {
+          const vacantBed = beds.find(b => !b.isOccupied);
+          if (vacantBed) {
+            vacantBed.isOccupied = true;
+            vacantBed.occupant = { ...occ, bedNumber: vacantBed.bedNumber };
+            assignedOccupantIds.add(occ.userId);
+          }
+        }
+
+        // Update occupants list with resolved bed numbers
+        const resolvedOccupants = beds
+          .filter(b => b.isOccupied && b.occupant)
+          .map(b => b.occupant);
+
+        const roomObj = room.toObject();
+        roomObj.currentOccupancy = activeOccupants.length;
+        roomObj.occupants = resolvedOccupants;
+        roomObj.beds = beds;
+
+        if (activeOccupants.length >= capacity) {
           roomObj.status = "Full";
         } else {
           roomObj.status = "Available";

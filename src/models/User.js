@@ -55,6 +55,7 @@ const roomDetailsSchema = new Schema(
     roomType: { type: Schema.Types.ObjectId, ref: "RoomType", default: null },
     roomRef: { type: Schema.Types.ObjectId, ref: "Room", default: null }, // Added reference to new physical Room model
     roomNumber: String,
+    bedNumber: { type: String, default: null },
     allocationDate: Date,
     status: {
       type: String,
