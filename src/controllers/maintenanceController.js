@@ -1,5 +1,7 @@
 const MaintenanceRequest = require("../models/MaintenanceRequest");
 const User = require("../models/User");
+require("../models/Room");
+require("../models/RoomType");
 const { uploadToS3 } = require("../middleware/upload");
 const { ValidationError } = require("../utils/errors");
 
@@ -9,7 +11,7 @@ exports.createRequest = async (req, res, next) => {
     const userId = req.user?._id;
     if (!userId) return res.status(401).json({ success: false, error: { message: "Unauthorized" } });
 
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).populate("roomDetails.roomRef");
     if (!user) return res.status(404).json({ success: false, error: { message: "User not found" } });
 
     const { department, issueTitle, description, priority } = req.body;
@@ -27,11 +29,28 @@ exports.createRequest = async (req, res, next) => {
       }
     }
 
+    const roomNumber =
+      user.roomDetails?.roomNumber ||
+      user.roomDetails?.roomRef?.roomNumber ||
+      user.roomNumber ||
+      user.basicInfo?.roomNumber ||
+      "N/A";
+
+    const studentName =
+      user.basicInfo?.fullName ||
+      user.fullName ||
+      "Student";
+
+    const phone =
+      user.basicInfo?.phone ||
+      user.phone ||
+      "";
+
     const ticket = new MaintenanceRequest({
       studentRef: user._id,
-      studentName: user.fullName || user.basicInfo?.fullName || "Student",
-      roomNumber: user.roomNumber || user.basicInfo?.roomNumber || "N/A",
-      phone: user.phone || user.basicInfo?.phone || "",
+      studentName,
+      roomNumber,
+      phone,
       department,
       issueTitle,
       description: description || "",
@@ -42,7 +61,7 @@ exports.createRequest = async (req, res, next) => {
         {
           status: "pending",
           note: "Request submitted by student",
-          updatedBy: user.fullName || user.basicInfo?.fullName || "Student",
+          updatedBy: studentName,
         },
       ],
     });
@@ -62,10 +81,33 @@ exports.getStudentRequests = async (req, res, next) => {
     if (!userId) return res.status(401).json({ success: false, error: { message: "Unauthorized" } });
 
     const requests = await MaintenanceRequest.find({ studentRef: userId })
+      .populate({
+        path: "studentRef",
+        select: "basicInfo roomDetails phone fullName",
+        populate: {
+          path: "roomDetails.roomRef",
+          select: "roomNumber",
+        },
+      })
       .sort({ createdAt: -1 })
       .lean();
 
-    return res.status(200).json({ success: true, data: requests });
+    const enrichedRequests = requests.map((ticket) => {
+      const student = ticket.studentRef;
+      const roomNumber =
+        ticket.roomNumber && ticket.roomNumber !== "N/A"
+          ? ticket.roomNumber
+          : student?.roomDetails?.roomNumber ||
+            student?.roomDetails?.roomRef?.roomNumber ||
+            "N/A";
+
+      return {
+        ...ticket,
+        roomNumber,
+      };
+    });
+
+    return res.status(200).json({ success: true, data: enrichedRequests });
   } catch (err) {
     next(err);
   }
@@ -104,6 +146,14 @@ exports.getAllRequests = async (req, res, next) => {
 
     const skip = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
     const requests = await MaintenanceRequest.find(filter)
+      .populate({
+        path: "studentRef",
+        select: "basicInfo roomDetails phone fullName",
+        populate: {
+          path: "roomDetails.roomRef",
+          select: "roomNumber",
+        },
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
@@ -111,10 +161,41 @@ exports.getAllRequests = async (req, res, next) => {
 
     const total = await MaintenanceRequest.countDocuments(filter);
 
+    const enrichedRequests = requests.map((ticket) => {
+      const student = ticket.studentRef;
+      const roomNumber =
+        ticket.roomNumber && ticket.roomNumber !== "N/A"
+          ? ticket.roomNumber
+          : student?.roomDetails?.roomNumber ||
+            student?.roomDetails?.roomRef?.roomNumber ||
+            "N/A";
+
+      const studentName =
+        ticket.studentName && ticket.studentName !== "Student"
+          ? ticket.studentName
+          : student?.basicInfo?.fullName ||
+            student?.fullName ||
+            ticket.studentName ||
+            "Student";
+
+      const phone =
+        ticket.phone ||
+        student?.basicInfo?.phone ||
+        student?.phone ||
+        "";
+
+      return {
+        ...ticket,
+        roomNumber,
+        studentName,
+        phone,
+      };
+    });
+
     return res.status(200).json({
       success: true,
       data: {
-        requests,
+        requests: enrichedRequests,
         pagination: { total, page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / parseInt(limit)) },
       },
     });

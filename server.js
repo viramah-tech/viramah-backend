@@ -7,8 +7,9 @@ const start = async () => {
   await connectDB();
   
   // Run sales agent collection migration
-  const { runSalesAgentMigration } = require("./src/utils/migration");
+  const { runSalesAgentMigration, runMaintenanceRoomBackfill } = require("./src/utils/migration");
   await runSalesAgentMigration();
+  await runMaintenanceRoomBackfill();
 
   // Seed transport drop points if empty
   const seedTransportStops = require("./src/scripts/seed_transport_stops");

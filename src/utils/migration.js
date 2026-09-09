@@ -67,4 +67,72 @@ const runSalesAgentMigration = async () => {
   }
 };
 
-module.exports = { runSalesAgentMigration };
+const MaintenanceRequest = require("../models/MaintenanceRequest");
+require("../models/Room");
+require("../models/RoomType");
+
+const runMaintenanceRoomBackfill = async () => {
+  try {
+    const unpopulatedTickets = await MaintenanceRequest.find({
+      $or: [
+        { roomNumber: "N/A" },
+        { roomNumber: { $exists: false } },
+        { roomNumber: null },
+        { roomNumber: "" },
+      ],
+    });
+
+    if (unpopulatedTickets.length === 0) {
+      return;
+    }
+
+    console.log(`[MIGRATION] Found ${unpopulatedTickets.length} maintenance tickets needing room verification. Checking students...`);
+
+    let updatedCount = 0;
+    for (const ticket of unpopulatedTickets) {
+      if (!ticket.studentRef) continue;
+
+      const user = await User.findById(ticket.studentRef).populate("roomDetails.roomRef");
+      if (!user) continue;
+
+      const resolvedRoom =
+        user.roomDetails?.roomNumber ||
+        user.roomDetails?.roomRef?.roomNumber ||
+        user.roomNumber ||
+        user.basicInfo?.roomNumber ||
+        null;
+
+      const resolvedName =
+        user.basicInfo?.fullName ||
+        user.fullName ||
+        ticket.studentName;
+
+      const resolvedPhone =
+        user.basicInfo?.phone ||
+        user.phone ||
+        ticket.phone;
+
+      const updates = {};
+      if (resolvedRoom && resolvedRoom !== "N/A" && ticket.roomNumber !== resolvedRoom) {
+        updates.roomNumber = resolvedRoom;
+      }
+      if (resolvedName && resolvedName !== "Student" && ticket.studentName !== resolvedName) {
+        updates.studentName = resolvedName;
+      }
+      if (resolvedPhone && ticket.phone !== resolvedPhone) {
+        updates.phone = resolvedPhone;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await MaintenanceRequest.updateOne({ _id: ticket._id }, { $set: updates });
+        updatedCount++;
+      }
+    }
+
+    console.log(`[MIGRATION] Successfully updated ${updatedCount} maintenance tickets with student room and contact info.`);
+  } catch (error) {
+    console.error("[MIGRATION] Error backfilling maintenance rooms:", error);
+  }
+};
+
+module.exports = { runSalesAgentMigration, runMaintenanceRoomBackfill };
