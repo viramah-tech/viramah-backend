@@ -222,6 +222,7 @@ const paymentSummarySchema = new Schema(
     transportFee: { type: ledgerEntrySchema, default: () => ({}) },
     fines: { type: ledgerEntrySchema, default: () => ({}) },
     grandTotal: { type: ledgerEntrySchema, default: () => ({}) },
+    refundedAmount: { type: Number, default: 0 },
     isFullyPaid: { type: Boolean, default: false },
   },
   { _id: false }
@@ -286,6 +287,22 @@ const authSchema = new Schema(
   { _id: false }
 );
 
+const cancellationSchema = new Schema(
+  {
+    isCancelled: { type: Boolean, default: false },
+    cancelledAt: Date,
+    cancelledBy: String,
+    cancellationReason: String,
+    refundAmount: { type: Number, default: 0 },
+    refundStatus: { type: String, enum: ["none", "pending", "processed"], default: "none" },
+    refundMode: { type: String, enum: ["upi", "bank_transfer", "cash", "cheque", "other", "none"], default: "none" },
+    refundTransactionId: String,
+    refundDate: Date,
+    refundNotes: String,
+  },
+  { _id: false }
+);
+
 const userSchema = new Schema(
   {
     basicInfo: { type: basicInfoSchema, required: true },
@@ -302,10 +319,11 @@ const userSchema = new Schema(
     referral: { type: referralSchema, default: () => ({}) },
     compliance: { type: complianceSchema, default: () => ({}) },
     auth: { type: authSchema, required: true },
-    role: { type: String, enum: ["user", "admin", "sales_member", "tenant", "accountant"], default: "user", index: true },
+    cancellation: { type: cancellationSchema, default: () => ({}) },
+    role: { type: String, enum: ["user", "admin", "sales_member", "tenant", "accountant", "hostel_incharge"], default: "user", index: true },
     accountStatus: {
       type: String,
-      enum: ["pending", "active", "suspended", "blocked"],
+      enum: ["pending", "active", "suspended", "blocked", "cancelled"],
       default: "pending",
       index: true,
     },

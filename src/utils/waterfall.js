@@ -120,6 +120,8 @@ const recalculateGrandTotal = (summary) => {
   summary.grandTotal.gstAmount = gstAmountSum;
   summary.grandTotal.total = totalSum;
   summary.grandTotal.paid = paidSum;
+  summary.grandTotal.refunded = summary.refundedAmount || 0;
+  summary.grandTotal.netPaid = Math.max(0, paidSum - (summary.refundedAmount || 0));
   summary.grandTotal.remaining = Math.max(0, remainingSum);
   summary.isFullyPaid = summary.grandTotal.remaining <= 0;
 };

@@ -118,8 +118,8 @@ router.get("/poll/active", async (req, res) => {
     const role = req.query.role || "student";
     const pollData = await messService.getActiveMonthlyPoll(userId);
 
-    // Strip voter names for non-admin callers
-    if (role !== "admin" && pollData.optionsWithTally) {
+    // Strip voter names for non-admin/non-incharge callers
+    if (role !== "admin" && role !== "hostel_incharge" && pollData.optionsWithTally) {
       pollData.optionsWithTally = pollData.optionsWithTally.map((opt) => {
         const { voters, ...rest } = opt;
         return rest;

@@ -46,16 +46,23 @@ router.use((req, res, next) => {
     (req.method === "PUT" && req.path.startsWith("/payments/") && (req.path.endsWith("/approve") || req.path.endsWith("/reject"))) ||
     (req.method === "POST" && (req.path === "/payments/reconcile" || req.path === "/payments/bulk-approve"));
 
-  // Allow accountant and admin to manage fines (POST /users/:userId/fines, DELETE /users/:userId/fines/:fineId, POST /fines/apply-daily)
+  // Allow sales and admin to cancel registration and manage refund
+  const isCancellationAction =
+    (req.method === "POST" && req.path.endsWith("/cancel-registration")) ||
+    (req.method === "PUT" && req.path.endsWith("/refund"));
+
+  // Allow accountant, sales, and admin to manage fines (POST /users/:userId/fines, DELETE /users/:userId/fines/:fineId, POST /fines/apply-daily)
   const isFineAction = req.path.includes("/fines") || req.path.endsWith("/fines");
   
   let allowedRoles = ["admin"];
   if (isReadOnlyRoute) {
-    allowedRoles = ["admin", "sales_member", "accountant"];
-  } else if (isSalesRoomAction || isSalesNoteAction) {
+    allowedRoles = ["admin", "sales_member", "accountant", "hostel_incharge"];
+  } else if (isSalesRoomAction || isSalesNoteAction || isCancellationAction) {
     allowedRoles = ["admin", "sales_member"];
-  } else if (isPaymentAction || isFineAction) {
+  } else if (isPaymentAction) {
     allowedRoles = ["admin", "accountant"];
+  } else if (isFineAction) {
+    allowedRoles = ["admin", "sales_member", "accountant"];
   }
 
   if (!req.user || !allowedRoles.includes(req.user.role)) {
@@ -229,6 +236,58 @@ router.delete("/users/:userId", async (req, res, next) => {
     next(err);
   }
 });
+
+const cancellationSchema = Joi.object({
+  cancellationReason: Joi.string().min(2).max(500).required(),
+  refundAmount: Joi.number().min(0).default(0),
+  refundMode: Joi.string().valid("upi", "bank_transfer", "cash", "cheque", "other", "none").default("none"),
+  refundTransactionId: Joi.string().allow("", null).default(""),
+  refundNotes: Joi.string().allow("", null).default(""),
+});
+
+const refundUpdateSchema = Joi.object({
+  refundAmount: Joi.number().min(0).required(),
+  refundMode: Joi.string().valid("upi", "bank_transfer", "cash", "cheque", "other", "none").default("none"),
+  refundTransactionId: Joi.string().allow("", null).default(""),
+  refundNotes: Joi.string().allow("", null).default(""),
+  reason: Joi.string().allow("", null).default(""),
+});
+
+router.post(
+  "/users/:userId/cancel-registration",
+  validate(cancellationSchema),
+  async (req, res, next) => {
+    try {
+      const actorId = req.user.basicInfo?.userId || req.user.userId || req.user._id?.toString() || "staff";
+      const result = await adminService.cancelStudentRegistration(
+        req.params.userId,
+        req.validatedBody,
+        actorId
+      );
+      res.json({ success: true, data: result, message: "Student registration cancelled successfully" });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.put(
+  "/users/:userId/refund",
+  validate(refundUpdateSchema),
+  async (req, res, next) => {
+    try {
+      const actorId = req.user.basicInfo?.userId || req.user.userId || req.user._id?.toString() || "staff";
+      const result = await adminService.updateRefundDetails(
+        req.params.userId,
+        req.validatedBody,
+        actorId
+      );
+      res.json({ success: true, data: result, message: "Refund details updated successfully" });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 router.put(
   "/users/:userId/discounts",

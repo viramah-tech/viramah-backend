@@ -8,19 +8,38 @@ const roleGuard = require("../middleware/roleGuard");
 
 const router = express.Router();
 
-// Require valid authentication and at least sales_member role
-router.use(authenticate, roleGuard("admin", "sales_member"));
+// Require valid authentication: admin and sales_member have full access; hostel_incharge has read-only access to /tenants and /available-rooms
+router.use(authenticate, (req, res, next) => {
+  if (req.user?.role === "hostel_incharge") {
+    if (req.method === "GET" && (req.path === "/tenants" || req.path === "/available-rooms")) {
+      return next();
+    }
+    return res.status(403).json({
+      success: false,
+      error: { message: "Forbidden: Hostel Incharge is restricted to read-only room allocations", code: "FORBIDDEN" },
+    });
+  }
+  return roleGuard("admin", "sales_member")(req, res, next);
+});
 
 // ----------------------------------------------------
 // 1. LEADS MANAGEMENT
 // ----------------------------------------------------
 
-// Get all leads (or only those assigned to the sales member)
+// Get all leads (or assigned + unassigned leads for sales members)
 router.get("/leads", async (req, res, next) => {
   try {
     const filter = {};
     if (req.user.role === "sales_member") {
-      filter.assignedTo = req.user._id;
+      if (req.query.assignedOnly === "true") {
+        filter.assignedTo = req.user._id;
+      } else {
+        filter.$or = [
+          { assignedTo: req.user._id },
+          { assignedTo: null },
+          { assignedTo: { $exists: false } },
+        ];
+      }
     }
     const leads = await Lead.find(filter).populate("assignedTo", "basicInfo.fullName").sort({ createdAt: -1 });
     res.json({ success: true, data: leads });
@@ -252,12 +271,20 @@ router.post("/leads/bulk-upload", csvUpload.single("file"), async (req, res, nex
 // 2. SCHEDULED VISITS MANAGEMENT
 // ----------------------------------------------------
 
-// Get all scheduled visits (or only those assigned to the sales member)
+// Get all scheduled visits (or assigned + unassigned visits for sales members)
 router.get("/visits", async (req, res, next) => {
   try {
     const filter = {};
     if (req.user.role === "sales_member") {
-      filter.assignedSalesMember = req.user._id;
+      if (req.query.assignedOnly === "true") {
+        filter.assignedSalesMember = req.user._id;
+      } else {
+        filter.$or = [
+          { assignedSalesMember: req.user._id },
+          { assignedSalesMember: null },
+          { assignedSalesMember: { $exists: false } },
+        ];
+      }
     }
     const visits = await ScheduledVisit.find(filter).populate("assignedSalesMember", "basicInfo.fullName").sort({ visitDate: 1 });
     res.json({ success: true, data: visits });
@@ -492,6 +519,17 @@ router.put("/assign-room/:userId", async (req, res, next) => {
     await Promise.all([user.save(), room.save()]);
 
     res.json({ success: true, message: `Room ${room.roomNumber} (${targetBed}) assigned successfully` });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get all sales agents (alias to sales team)
+router.get("/agents", async (req, res, next) => {
+  try {
+    const SalesAgent = require("../models/SalesAgent");
+    const agents = await SalesAgent.find({}, "basicInfo.userId basicInfo.fullName basicInfo.email basicInfo.phone accountStatus createdAt");
+    res.json({ success: true, data: agents });
   } catch (error) {
     next(error);
   }

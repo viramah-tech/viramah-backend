@@ -150,12 +150,43 @@ const seedAccountant = async () => {
   console.log(`[seed] Accountant user created: ${email} / ${password}`);
 };
 
+const seedHostelIncharge = async () => {
+  const email = "incharge@viramah.com";
+  const password = "incharge123";
+  const phone = "7777777777";
+
+  const existing = await User.findOne({ "basicInfo.email": email });
+  if (existing) {
+    console.log(`[seed] Hostel Incharge user already exists: ${email}`);
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const userId = "INCHARGE_1";
+
+  await User.create({
+    basicInfo: {
+      userId,
+      fullName: "Viramah Hostel Incharge",
+      email,
+      phone,
+    },
+    auth: { passwordHash },
+    role: "hostel_incharge",
+    accountStatus: "active",
+    onboarding: { currentStep: "completed", startedAt: new Date(), completedAt: new Date() },
+    verification: { emailVerified: true, phoneVerified: true },
+  });
+  console.log(`[seed] Hostel Incharge user created: ${email} / ${password}`);
+};
+
 const run = async () => {
   await connectDB();
   await seedPricing();
   await seedRoomTypes();
   await seedAdmin();
   await seedAccountant();
+  await seedHostelIncharge();
   await mongoose.connection.close();
   console.log("[seed] Done.");
 };

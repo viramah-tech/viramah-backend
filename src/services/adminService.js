@@ -55,7 +55,15 @@ const getUsers = async ({ status, step, search, page = 1, limit = 20 }) => {
 };
 
 const getUserById = async (userId) => {
-  const user = await User.findOne({ "basicInfo.userId": userId })
+  const mongoose = require("mongoose");
+  const isMongoId = mongoose.isValidObjectId(userId);
+  const user = await User.findOne({
+    $or: [
+      { "basicInfo.userId": userId },
+      { "basicInfo.residentId": userId },
+      ...(isMongoId ? [{ _id: userId }] : []),
+    ],
+  })
     .select("-auth.passwordHash -verification.otp")
     .populate("roomDetails.roomType");
   if (!user) throw new NotFoundError("User not found");
@@ -907,6 +915,144 @@ const clearAllFines = async (reason, adminUserId) => {
   return { totalFinesCleared, studentsAffected };
 };
 
+const cancelStudentRegistration = async (userId, data, adminUserId) => {
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+
+  if (user.accountStatus === "cancelled" || user.cancellation?.isCancelled) {
+    throw new ValidationError("Registration is already cancelled for this student");
+  }
+
+  const {
+    cancellationReason,
+    refundAmount = 0,
+    refundMode = "none",
+    refundTransactionId = "",
+    refundNotes = ""
+  } = data;
+
+  if (!cancellationReason || cancellationReason.trim() === "") {
+    throw new ValidationError("Cancellation reason is required");
+  }
+
+  const numRefund = Number(refundAmount) || 0;
+  if (numRefund < 0) {
+    throw new ValidationError("Refund amount cannot be negative");
+  }
+
+  // 1. Release Room and Bed if assigned
+  if (user.roomDetails?.roomRef) {
+    const Room = require("../models/Room");
+    try {
+      const room = await Room.findById(user.roomDetails.roomRef);
+      if (room) {
+        if (room.beds && room.beds.length > 0) {
+          const bed = room.beds.find(
+            (b) =>
+              (b.occupiedBy && b.occupiedBy.toString() === user._id.toString()) ||
+              b.bedNumber === user.roomDetails.bedNumber
+          );
+          if (bed) {
+            bed.isOccupied = false;
+            bed.occupiedBy = null;
+          }
+        }
+        room.currentOccupancy = Math.max(0, (room.currentOccupancy || 1) - 1);
+        if (room.currentOccupancy < room.capacity) {
+          room.status = "Available";
+        }
+        await room.save();
+      }
+    } catch (roomErr) {
+      console.error("[CANCEL_REGISTRATION] Error freeing room bed:", roomErr);
+    }
+
+    user.roomDetails.roomRef = null;
+    user.roomDetails.roomNumber = null;
+    user.roomDetails.bedNumber = null;
+    user.roomDetails.status = "unassigned";
+    user.roomDetails.allocationDate = null;
+  }
+
+  // 2. Cancel Transport Pass if active
+  if (user.transportPass) {
+    user.transportPass.status = "cancelled";
+  }
+
+  // 3. Mark account status as cancelled
+  user.accountStatus = "cancelled";
+
+  // 4. Record cancellation details
+  user.cancellation = {
+    isCancelled: true,
+    cancelledAt: new Date(),
+    cancelledBy: adminUserId,
+    cancellationReason: cancellationReason.trim(),
+    refundAmount: numRefund,
+    refundStatus: numRefund > 0 ? "processed" : "none",
+    refundMode,
+    refundTransactionId: (refundTransactionId || "").trim(),
+    refundDate: numRefund > 0 ? new Date() : null,
+    refundNotes: (refundNotes || "").trim(),
+  };
+
+  // 5. Update paymentSummary: record refundedAmount and zero out remaining dues
+  if (!user.paymentSummary) user.paymentSummary = {};
+  user.paymentSummary.refundedAmount = numRefund;
+
+  const categories = ["registrationFee", "securityDeposit", "roomRent", "messFee", "transportFee", "fines"];
+  for (const cat of categories) {
+    if (user.paymentSummary[cat]) {
+      user.paymentSummary[cat].remaining = 0;
+    }
+  }
+  recalculateGrandTotal(user.paymentSummary);
+  user.paymentSummary.grandTotal.remaining = 0;
+  user.paymentSummary.isFullyPaid = true;
+
+  await user.save();
+
+  logAdminAction("CANCEL_REGISTRATION", adminUserId, userId, {
+    reason: cancellationReason,
+    refundAmount: numRefund,
+    refundMode,
+    refundTransactionId,
+  });
+
+  return user;
+};
+
+const updateRefundDetails = async (userId, data, adminUserId) => {
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+
+  const { refundAmount, refundMode, refundTransactionId, refundNotes, reason } = data;
+  const numRefund = Number(refundAmount);
+  if (isNaN(numRefund) || numRefund < 0) {
+    throw new ValidationError("Valid non-negative refund amount is required");
+  }
+
+  if (!user.cancellation) {
+    user.cancellation = { isCancelled: user.accountStatus === "cancelled" };
+  }
+
+  user.cancellation.refundAmount = numRefund;
+  user.cancellation.refundStatus = numRefund > 0 ? "processed" : "none";
+  if (refundMode) user.cancellation.refundMode = refundMode;
+  if (refundTransactionId !== undefined) user.cancellation.refundTransactionId = (refundTransactionId || "").trim();
+  if (refundNotes !== undefined) user.cancellation.refundNotes = (refundNotes || "").trim();
+  if (reason) user.cancellation.cancellationReason = (reason || "").trim();
+  if (numRefund > 0 && !user.cancellation.refundDate) user.cancellation.refundDate = new Date();
+
+  if (!user.paymentSummary) user.paymentSummary = {};
+  user.paymentSummary.refundedAmount = numRefund;
+  recalculateGrandTotal(user.paymentSummary);
+
+  await user.save();
+  logAdminAction("UPDATE_REFUND", adminUserId, userId, { refundAmount: numRefund, refundMode, refundTransactionId });
+  return user;
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -931,6 +1077,8 @@ module.exports = {
   getFinesSummary,
   clearAllFines,
   changeUserPassword,
+  cancelStudentRegistration,
+  updateRefundDetails,
 };
 
 const { parseCSV, mapHeaders, extractUTRFromString } = require("../utils/csvParser");

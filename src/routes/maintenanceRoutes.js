@@ -8,9 +8,20 @@ const maintenanceController = require("../controllers/maintenanceController");
 router.post("/create", auth, upload.array("images", 3), maintenanceController.createRequest);
 router.get("/student/requests", auth, maintenanceController.getStudentRequests);
 
-// Admin routes
-router.get("/admin/requests", maintenanceController.getAllRequests);
-router.patch("/admin/:id/status", maintenanceController.updateRequestStatus);
-router.get("/admin/stats", maintenanceController.getStats);
+// Incharge & Admin routes
+const allowInchargeOrAdmin = (req, res, next) => {
+  if (!req.user || (req.user.role !== "admin" && req.user.role !== "hostel_incharge")) {
+    return res.status(403).json({
+      success: false,
+      error: { message: "Insufficient permissions", code: "FORBIDDEN" },
+    });
+  }
+  next();
+};
+
+router.get("/admin/requests", auth, allowInchargeOrAdmin, maintenanceController.getAllRequests);
+router.post("/admin/requests", auth, allowInchargeOrAdmin, upload.array("images", 3), maintenanceController.createAdminRequest);
+router.patch("/admin/:id/status", auth, allowInchargeOrAdmin, maintenanceController.updateRequestStatus);
+router.get("/admin/stats", auth, allowInchargeOrAdmin, maintenanceController.getStats);
 
 module.exports = router;

@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const MaintenanceRequest = require("../models/MaintenanceRequest");
 const User = require("../models/User");
 require("../models/Room");
@@ -196,6 +197,7 @@ exports.getAllRequests = async (req, res, next) => {
       success: true,
       data: {
         requests: enrichedRequests,
+        total,
         pagination: { total, page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / parseInt(limit)) },
       },
     });
@@ -215,10 +217,15 @@ exports.updateRequestStatus = async (req, res, next) => {
 
     if (status) {
       ticket.status = status;
+      const updatedByName =
+        req.user?.fullName ||
+        req.user?.basicInfo?.fullName ||
+        (req.user?.role === "hostel_incharge" ? "Hostel Incharge" : "Admin");
+
       ticket.statusHistory.push({
         status,
         note: note || `Status updated to ${status}`,
-        updatedBy: req.user?.fullName || req.user?.basicInfo?.fullName || "Admin",
+        updatedBy: updatedByName,
         timestamp: new Date(),
       });
 
@@ -265,6 +272,99 @@ exports.getStats = async (req, res, next) => {
       success: true,
       data: { total, pending, assigned, inProgress, resolved, closed, byDepartment },
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ── Admin / Hostel Incharge: Create new maintenance request ──
+exports.createAdminRequest = async (req, res, next) => {
+  try {
+    const { studentName, roomNumber, phone, department, issueTitle, description, priority, assignedTo, adminNotes, studentRef } = req.body;
+
+    if (!department || !issueTitle) {
+      return res.status(400).json({ success: false, error: { message: "department and issueTitle are required" } });
+    }
+
+    const imageUrls = [];
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        const url = await uploadToS3(file, `maintenance`);
+        imageUrls.push(url);
+      }
+    }
+
+    const inchargeName =
+      req.user?.fullName ||
+      req.user?.basicInfo?.fullName ||
+      (req.user?.role === "hostel_incharge" ? "Hostel Incharge" : "Admin");
+
+    let linkedStudentId = null;
+    let finalStudentName = studentName || "Walk-in Resident";
+    let finalRoomNumber = roomNumber || "General / Common Area";
+    let finalPhone = phone || "";
+
+    if (studentRef) {
+      const isMongoId = mongoose.isValidObjectId(studentRef);
+      const user = await User.findOne({
+        $or: [
+          ...(isMongoId ? [{ _id: studentRef }] : []),
+          { "basicInfo.userId": studentRef },
+          { "basicInfo.residentId": studentRef },
+        ],
+      }).populate("roomDetails.roomRef");
+
+      if (user) {
+        linkedStudentId = user._id;
+        if (!studentName) finalStudentName = user.basicInfo?.fullName || user.fullName || "Student";
+        if (!roomNumber) {
+          finalRoomNumber = user.roomDetails?.roomNumber || user.roomDetails?.roomRef?.roomNumber || "N/A";
+        }
+        if (!phone) finalPhone = user.basicInfo?.phone || user.phone || "";
+      }
+    } else if (roomNumber) {
+      const user = await User.findOne({
+        $or: [
+          { "roomDetails.roomNumber": roomNumber },
+          { roomNumber: roomNumber },
+          { "basicInfo.roomNumber": roomNumber },
+        ],
+      });
+      if (user) {
+        linkedStudentId = user._id;
+        if (!studentName) finalStudentName = user.basicInfo?.fullName || user.fullName || "Resident";
+        if (!phone) finalPhone = user.basicInfo?.phone || user.phone || "";
+      }
+    }
+
+    const initialStatus = assignedTo ? "assigned" : "pending";
+
+    const ticket = new MaintenanceRequest({
+      studentRef: linkedStudentId,
+      studentName: finalStudentName,
+      roomNumber: finalRoomNumber,
+      phone: finalPhone,
+      department,
+      issueTitle,
+      description: description || "",
+      priority: priority || "normal",
+      images: imageUrls,
+      assignedTo: assignedTo || "",
+      adminNotes: adminNotes || "",
+      status: initialStatus,
+      statusHistory: [
+        {
+          status: initialStatus,
+          note: `Request logged by ${inchargeName}`,
+          updatedBy: inchargeName,
+          timestamp: new Date(),
+        },
+      ],
+    });
+
+    await ticket.save();
+
+    return res.status(201).json({ success: true, data: ticket });
   } catch (err) {
     next(err);
   }

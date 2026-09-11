@@ -20,7 +20,8 @@ const maintenanceRequestSchema = new mongoose.Schema(
     studentRef: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false,
+      default: null,
       index: true,
     },
     studentName: { type: String, required: true },

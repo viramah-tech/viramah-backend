@@ -121,6 +121,26 @@ const login = async ({ email, phone, password }) => {
     }
   }
 
+  // Hostel Incharge environment bypass
+  const inchargeEmail = (process.env.HOSTEL_INCHARGE_EMAIL || "incharge@viramah.com").toLowerCase().trim();
+  const inchargePassword = process.env.HOSTEL_INCHARGE_PASSWORD || "incharge123";
+  if (normalizedEmail === inchargeEmail) {
+    if (password === inchargePassword) {
+      return {
+        basicInfo: {
+          userId: "HOSTEL_INCHARGE_SYSTEM",
+          fullName: "Viramah Hostel Incharge",
+          email: normalizedEmail,
+        },
+        role: "hostel_incharge",
+        accountStatus: "active",
+        onboarding: { currentStep: "completed" },
+      };
+    } else {
+      throw new AuthError("Invalid email or password");
+    }
+  }
+
   const user = await findUserByIdentifier(identifier);
   if (!user) {
     throw new AuthError("Invalid email or password");
@@ -183,6 +203,20 @@ const getMe = async (userId) => {
         email: process.env.ACCOUNTANT_EMAIL || "accountant@viramah.com",
       },
       role: "accountant",
+      accountStatus: "active",
+      onboarding: { currentStep: "completed" },
+    };
+  }
+
+  // Hostel Incharge environment bypass
+  if (userId === "HOSTEL_INCHARGE_SYSTEM") {
+    return {
+      basicInfo: {
+        userId: "HOSTEL_INCHARGE_SYSTEM",
+        fullName: "Viramah Hostel Incharge",
+        email: process.env.HOSTEL_INCHARGE_EMAIL || "incharge@viramah.com",
+      },
+      role: "hostel_incharge",
       accountStatus: "active",
       onboarding: { currentStep: "completed" },
     };

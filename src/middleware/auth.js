@@ -35,6 +35,20 @@ const auth = async (req, res, next) => {
       return next();
     }
 
+    if (req.session.userId === "HOSTEL_INCHARGE_SYSTEM") {
+      req.user = {
+        basicInfo: {
+          userId: "HOSTEL_INCHARGE_SYSTEM",
+          fullName: "Viramah Hostel Incharge",
+          email: process.env.HOSTEL_INCHARGE_EMAIL || "incharge@viramah.com",
+        },
+        role: "hostel_incharge",
+        accountStatus: "active",
+        onboarding: { currentStep: "completed" },
+      };
+      return next();
+    }
+
     let user = await User.findOne({ "basicInfo.userId": req.session.userId });
     if (!user) {
       const SalesAgent = require("../models/SalesAgent");

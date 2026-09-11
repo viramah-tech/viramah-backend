@@ -6,7 +6,7 @@ const router = express.Router();
 router.get("/", async (req, res, next) => {
   try {
     const rooms = await roomService.getAllRoomTypes();
-    res.json({ success: true, data: { rooms } });
+    res.json({ success: true, data: { rooms, roomTypes: rooms } });
   } catch (err) {
     next(err);
   }
