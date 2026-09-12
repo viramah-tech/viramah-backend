@@ -7,6 +7,8 @@ const maintenanceController = require("../controllers/maintenanceController");
 // Student routes
 router.post("/create", auth, upload.array("images", 3), maintenanceController.createRequest);
 router.get("/student/requests", auth, maintenanceController.getStudentRequests);
+router.patch("/student/:id/close", auth, maintenanceController.closeStudentRequest);
+router.post("/student/:id/close", auth, maintenanceController.closeStudentRequest);
 
 // Incharge & Admin routes
 const allowInchargeOrAdmin = (req, res, next) => {

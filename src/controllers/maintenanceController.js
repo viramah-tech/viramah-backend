@@ -114,6 +114,56 @@ exports.getStudentRequests = async (req, res, next) => {
   }
 };
 
+// ── Student: Close their own maintenance request ──────────
+exports.closeStudentRequest = async (req, res, next) => {
+  try {
+    const userId = req.user?._id;
+    if (!userId) return res.status(401).json({ success: false, error: { message: "Unauthorized" } });
+
+    const { id } = req.params;
+    const { note } = req.body || {};
+
+    const ticket =
+      (mongoose.Types.ObjectId.isValid(id) ? await MaintenanceRequest.findById(id) : null) ||
+      (await MaintenanceRequest.findOne({ ticketId: id }));
+
+    if (!ticket) {
+      return res.status(404).json({ success: false, error: { message: "Ticket not found" } });
+    }
+
+    // Ensure the ticket belongs to the authenticated student
+    if (!ticket.studentRef || ticket.studentRef.toString() !== userId.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: { message: "You can only close tickets raised by yourself" },
+      });
+    }
+
+    if (ticket.status === "closed") {
+      return res.status(400).json({
+        success: false,
+        error: { message: "Ticket is already closed" },
+      });
+    }
+
+    ticket.status = "closed";
+    ticket.closedAt = new Date();
+    const studentName = req.user?.basicInfo?.fullName || req.user?.fullName || "Student";
+    ticket.statusHistory.push({
+      status: "closed",
+      note: note || "Closed by resident",
+      updatedBy: `${studentName} (Resident)`,
+      timestamp: new Date(),
+    });
+
+    await ticket.save();
+
+    return res.status(200).json({ success: true, data: ticket });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // ── Admin: Get all requests with filters ──────────────────
 exports.getAllRequests = async (req, res, next) => {
   try {

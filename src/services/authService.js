@@ -122,10 +122,14 @@ const login = async ({ email, phone, password }) => {
   }
 
   // Hostel Incharge environment bypass
-  const inchargeEmail = (process.env.HOSTEL_INCHARGE_EMAIL || "incharge@viramah.com").toLowerCase().trim();
-  const inchargePassword = process.env.HOSTEL_INCHARGE_PASSWORD || "incharge123";
-  if (normalizedEmail === inchargeEmail) {
-    if (password === inchargePassword) {
+  const inchargeEmail = (
+    process.env.HOSTEL_INCHARGE_EMAIL || (process.env.NODE_ENV !== "production" ? "incharge@viramah.com" : "")
+  ).toLowerCase().trim();
+  const inchargePassword =
+    process.env.HOSTEL_INCHARGE_PASSWORD || (process.env.NODE_ENV !== "production" ? "incharge123" : "");
+
+  if (inchargeEmail && normalizedEmail === inchargeEmail) {
+    if (inchargePassword && password === inchargePassword) {
       return {
         basicInfo: {
           userId: "HOSTEL_INCHARGE_SYSTEM",
