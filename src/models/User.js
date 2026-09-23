@@ -369,6 +369,14 @@ const userSchema = new Schema(
           resolvedBy: { type: String },
           resolvedAt: { type: Date },
           resolutionNotes: { type: String },
+          documents: [
+            {
+              url: { type: String, required: true },
+              name: { type: String },
+              fileType: { type: String },
+              uploadedAt: { type: Date, default: Date.now },
+            }
+          ],
           createdAt: { type: Date, default: Date.now },
         }
       ],

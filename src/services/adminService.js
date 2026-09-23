@@ -1065,7 +1065,7 @@ const updateRefundDetails = async (userId, data, adminUserId) => {
 
 // ── Behavioral Compliance Issues ──────────────────────────────────────────────
 
-const addBehavioralIssue = async (userId, issueData, adminUserId) => {
+const addBehavioralIssue = async (userId, issueData, files, adminUserId) => {
   const user = await User.findOne({ "basicInfo.userId": userId });
   if (!user) throw new NotFoundError("User not found");
 
@@ -1074,6 +1074,45 @@ const addBehavioralIssue = async (userId, issueData, adminUserId) => {
   }
 
   const issueId = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString("hex");
+
+  // Handle uploaded document files
+  const documents = [];
+  if (files && Array.isArray(files) && files.length > 0) {
+    const { uploadToS3 } = require("../middleware/upload");
+    for (const f of files) {
+      const url = await uploadToS3(f, `compliance-documents/${user.basicInfo?.userId || user._id}`);
+      documents.push({
+        url,
+        name: f.originalname || "document",
+        fileType: f.mimetype || "application/octet-stream",
+        uploadedAt: new Date(),
+      });
+    }
+  }
+
+  // Handle existing or pre-uploaded documents passed in request
+  if (issueData.documents) {
+    let parsedDocs = issueData.documents;
+    if (typeof parsedDocs === "string") {
+      try {
+        parsedDocs = JSON.parse(parsedDocs);
+      } catch (_) {
+        parsedDocs = [];
+      }
+    }
+    if (Array.isArray(parsedDocs)) {
+      for (const d of parsedDocs) {
+        if (d && d.url) {
+          documents.push({
+            url: d.url,
+            name: d.name || "document",
+            fileType: d.fileType || "image/jpeg",
+            uploadedAt: d.uploadedAt ? new Date(d.uploadedAt) : new Date(),
+          });
+        }
+      }
+    }
+  }
 
   if (!user.behavioralIssues) user.behavioralIssues = [];
   user.behavioralIssues.push({
@@ -1084,11 +1123,45 @@ const addBehavioralIssue = async (userId, issueData, adminUserId) => {
     date: issueData.date ? new Date(issueData.date) : new Date(),
     reportedBy: adminUserId,
     isResolved: false,
+    documents,
     createdAt: new Date(),
   });
 
   await user.save();
-  logAdminAction("ADD_BEHAVIORAL_ISSUE", adminUserId, userId, { issueId, category: issueData.category, severity: issueData.severity });
+  logAdminAction("ADD_BEHAVIORAL_ISSUE", adminUserId, userId, {
+    issueId,
+    category: issueData.category,
+    severity: issueData.severity,
+    documentsCount: documents.length,
+  });
+  return user;
+};
+
+const attachBehavioralIssueDocuments = async (userId, issueId, files, adminUserId) => {
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+
+  if (!user.behavioralIssues) user.behavioralIssues = [];
+  const issue = user.behavioralIssues.find((i) => i.issueId === issueId);
+  if (!issue) throw new NotFoundError("Behavioral issue not found");
+
+  if (!issue.documents) issue.documents = [];
+
+  if (files && Array.isArray(files) && files.length > 0) {
+    const { uploadToS3 } = require("../middleware/upload");
+    for (const f of files) {
+      const url = await uploadToS3(f, `compliance-documents/${user.basicInfo?.userId || user._id}`);
+      issue.documents.push({
+        url,
+        name: f.originalname || "document",
+        fileType: f.mimetype || "application/octet-stream",
+        uploadedAt: new Date(),
+      });
+    }
+  }
+
+  await user.save();
+  logAdminAction("ATTACH_BEHAVIORAL_DOCUMENTS", adminUserId, userId, { issueId, count: files?.length || 0 });
   return user;
 };
 
@@ -1126,6 +1199,111 @@ const deleteBehavioralIssue = async (userId, issueId, adminUserId) => {
   return user;
 };
 
+const getBehavioralIssues = async (queryOpts = {}) => {
+  const {
+    category,
+    severity,
+    status,
+    search,
+    hasDocuments,
+    page = 1,
+    limit = 25,
+  } = queryOpts;
+
+  // Find all users who have at least one behavioral issue
+  const users = await User.find({ "behavioralIssues.0": { $exists: true } })
+    .select("basicInfo roomDetails profilePhoto behavioralIssues")
+    .populate("roomDetails.roomType")
+    .lean();
+
+  let allIssues = [];
+
+  for (const u of users) {
+    const issues = u.behavioralIssues || [];
+    const student = {
+      userId: u.basicInfo?.userId || u._id.toString(),
+      fullName: u.basicInfo?.fullName || "Unknown User",
+      email: u.basicInfo?.email || "N/A",
+      phone: u.basicInfo?.phone || "N/A",
+      roomNumber: u.roomDetails?.roomNumber || "—",
+      bedNumber: u.roomDetails?.bedNumber || "—",
+      roomType: u.roomDetails?.roomType?.displayName || u.roomDetails?.roomType?.name || (typeof u.roomDetails?.roomType === "string" ? u.roomDetails.roomType : "—"),
+      profilePhoto: u.profilePhoto?.url,
+    };
+
+    for (const issue of issues) {
+      allIssues.push({
+        ...issue,
+        student,
+      });
+    }
+  }
+
+  // Calculate overall stats before filtering
+  const stats = {
+    totalIssues: allIssues.length,
+    activeCount: allIssues.filter((i) => !i.isResolved).length,
+    resolvedCount: allIssues.filter((i) => i.isResolved).length,
+    severeCount: allIssues.filter((i) => i.severity === "severe").length,
+    withDocsCount: allIssues.filter((i) => i.documents && i.documents.length > 0).length,
+  };
+
+  // Apply filters
+  let filtered = allIssues;
+
+  if (category && category !== "all") {
+    filtered = filtered.filter((i) => i.category === category);
+  }
+
+  if (severity && severity !== "all") {
+    filtered = filtered.filter((i) => i.severity === severity);
+  }
+
+  if (status === "active") {
+    filtered = filtered.filter((i) => !i.isResolved);
+  } else if (status === "resolved") {
+    filtered = filtered.filter((i) => i.isResolved);
+  }
+
+  if (hasDocuments === "true") {
+    filtered = filtered.filter((i) => i.documents && i.documents.length > 0);
+  }
+
+  if (search && search.trim() !== "") {
+    const q = search.trim().toLowerCase();
+    filtered = filtered.filter((i) =>
+      i.student.fullName.toLowerCase().includes(q) ||
+      i.student.userId.toLowerCase().includes(q) ||
+      i.student.email.toLowerCase().includes(q) ||
+      i.student.phone.toLowerCase().includes(q) ||
+      i.student.roomNumber.toLowerCase().includes(q) ||
+      (i.description && i.description.toLowerCase().includes(q)) ||
+      (i.resolutionNotes && i.resolutionNotes.toLowerCase().includes(q))
+    );
+  }
+
+  // Sort: Active first, then incident date / createdAt descending
+  filtered.sort((a, b) => {
+    if (a.isResolved !== b.isResolved) return a.isResolved ? 1 : -1;
+    const dateA = new Date(a.date || a.createdAt || 0).getTime();
+    const dateB = new Date(b.date || b.createdAt || 0).getTime();
+    return dateB - dateA;
+  });
+
+  const total = filtered.length;
+  const p = Math.max(1, Number(page));
+  const l = Math.max(1, Number(limit));
+  const paginated = filtered.slice((p - 1) * l, p * l);
+
+  return {
+    issues: paginated,
+    total,
+    page: p,
+    limit: l,
+    stats,
+  };
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -1153,8 +1331,10 @@ module.exports = {
   cancelStudentRegistration,
   updateRefundDetails,
   addBehavioralIssue,
+  attachBehavioralIssueDocuments,
   resolveBehavioralIssue,
   deleteBehavioralIssue,
+  getBehavioralIssues,
 };
 
 const { parseCSV, mapHeaders, extractUTRFromString } = require("../utils/csvParser");

@@ -8,7 +8,7 @@ const { logAdminAction } = require("../utils/auditLogger");
 const { collectReferencedS3KeysFromUsers, splitS3KeysByReference, getS3ErrorMessage } = require("../utils/s3Cleanup");
 const multer = require("multer");
 const uploadCsv = multer({ storage: multer.memoryStorage() });
-const { uploadToS3 } = require("../middleware/upload");
+const { upload, uploadToS3 } = require("../middleware/upload");
 
 const router = express.Router();
 
@@ -1266,19 +1266,55 @@ router.post("/create-student", async (req, res, next) => {
 
 // ── Behavioral Compliance Issues ─────────────────────────────────────────────
 
+router.get("/behavioral-issues", async (req, res, next) => {
+  try {
+    const result = await adminService.getBehavioralIssues(req.query);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post(
   "/users/:userId/behavioral-issues",
-  validate(Joi.object({
-    category: Joi.string().valid("noise", "property_damage", "substance", "attendance", "misconduct", "curfew_violation", "other").default("other"),
-    description: Joi.string().min(3).max(1000).required(),
-    severity: Joi.string().valid("minor", "moderate", "severe").default("minor"),
-    date: Joi.date().iso().optional(),
-  })),
+  upload.array("documents", 5),
   async (req, res, next) => {
     try {
+      const data = {
+        category: req.body.category || "other",
+        description: req.body.description,
+        severity: req.body.severity || "minor",
+        date: req.body.date,
+        documents: req.body.documents,
+      };
+      if (!data.description || data.description.trim().length < 3) {
+        return res.status(400).json({
+          success: false,
+          error: { message: "Description must be at least 3 characters", code: "VALIDATION_ERROR" },
+        });
+      }
       const result = await adminService.addBehavioralIssue(
         req.params.userId,
-        req.validatedBody,
+        data,
+        req.files,
+        req.user.basicInfo.userId
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/users/:userId/behavioral-issues/:issueId/documents",
+  upload.array("documents", 5),
+  async (req, res, next) => {
+    try {
+      const result = await adminService.attachBehavioralIssueDocuments(
+        req.params.userId,
+        req.params.issueId,
+        req.files,
         req.user.basicInfo.userId
       );
       res.json({ success: true, data: result });
