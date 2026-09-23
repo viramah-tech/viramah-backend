@@ -67,6 +67,16 @@ const getUserById = async (userId) => {
     .select("-auth.passwordHash -verification.otp")
     .populate("roomDetails.roomType");
   if (!user) throw new NotFoundError("User not found");
+
+  // Fallback: If physical room is assigned but roomType was null, resolve from physical room
+  if (user.roomDetails?.roomRef && !user.roomDetails?.roomType) {
+    const Room = require("../models/Room");
+    const physicalRoom = await Room.findById(user.roomDetails.roomRef).populate("roomType");
+    if (physicalRoom?.roomType) {
+      user.roomDetails.roomType = physicalRoom.roomType;
+    }
+  }
+
   return user;
 };
 
@@ -1053,6 +1063,69 @@ const updateRefundDetails = async (userId, data, adminUserId) => {
   return user;
 };
 
+// ── Behavioral Compliance Issues ──────────────────────────────────────────────
+
+const addBehavioralIssue = async (userId, issueData, adminUserId) => {
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+
+  if (!issueData.description || issueData.description.trim() === "") {
+    throw new ValidationError("Description is required");
+  }
+
+  const issueId = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString("hex");
+
+  if (!user.behavioralIssues) user.behavioralIssues = [];
+  user.behavioralIssues.push({
+    issueId,
+    category: issueData.category || "other",
+    description: issueData.description.trim(),
+    severity: issueData.severity || "minor",
+    date: issueData.date ? new Date(issueData.date) : new Date(),
+    reportedBy: adminUserId,
+    isResolved: false,
+    createdAt: new Date(),
+  });
+
+  await user.save();
+  logAdminAction("ADD_BEHAVIORAL_ISSUE", adminUserId, userId, { issueId, category: issueData.category, severity: issueData.severity });
+  return user;
+};
+
+const resolveBehavioralIssue = async (userId, issueId, resolutionNotes, adminUserId) => {
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+
+  if (!user.behavioralIssues) user.behavioralIssues = [];
+  const issue = user.behavioralIssues.find((i) => i.issueId === issueId);
+  if (!issue) throw new NotFoundError("Behavioral issue not found");
+  if (issue.isResolved) throw new ValidationError("Issue is already resolved");
+
+  issue.isResolved = true;
+  issue.resolvedBy = adminUserId;
+  issue.resolvedAt = new Date();
+  issue.resolutionNotes = resolutionNotes || "";
+
+  await user.save();
+  logAdminAction("RESOLVE_BEHAVIORAL_ISSUE", adminUserId, userId, { issueId, resolutionNotes });
+  return user;
+};
+
+const deleteBehavioralIssue = async (userId, issueId, adminUserId) => {
+  const user = await User.findOne({ "basicInfo.userId": userId });
+  if (!user) throw new NotFoundError("User not found");
+
+  if (!user.behavioralIssues) user.behavioralIssues = [];
+  const idx = user.behavioralIssues.findIndex((i) => i.issueId === issueId);
+  if (idx === -1) throw new NotFoundError("Behavioral issue not found");
+
+  user.behavioralIssues.splice(idx, 1);
+
+  await user.save();
+  logAdminAction("DELETE_BEHAVIORAL_ISSUE", adminUserId, userId, { issueId });
+  return user;
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -1079,6 +1152,9 @@ module.exports = {
   changeUserPassword,
   cancelStudentRegistration,
   updateRefundDetails,
+  addBehavioralIssue,
+  resolveBehavioralIssue,
+  deleteBehavioralIssue,
 };
 
 const { parseCSV, mapHeaders, extractUTRFromString } = require("../utils/csvParser");

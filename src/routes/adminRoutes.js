@@ -53,16 +53,28 @@ router.use((req, res, next) => {
 
   // Allow accountant, sales, and admin to manage fines (POST /users/:userId/fines, DELETE /users/:userId/fines/:fineId, POST /fines/apply-daily)
   const isFineAction = req.path.includes("/fines") || req.path.endsWith("/fines");
+
+  // Allow sales and admin to update user details (e.g. toggle auto fines)
+  const isUserDetailsAction = req.method === "PUT" && /^\/users\/[^/]+\/details$/.test(req.path);
+
+  // Allow admin, sales, and hostel_incharge to manage behavioral compliance issues
+  const isBehavioralAction = req.path.includes("/behavioral-issues");
   
   let allowedRoles = ["admin"];
   if (isReadOnlyRoute) {
     allowedRoles = ["admin", "sales_member", "accountant", "hostel_incharge"];
-  } else if (isSalesRoomAction || isSalesNoteAction || isCancellationAction) {
+  } else if (isSalesRoomAction || isSalesNoteAction || isCancellationAction || isUserDetailsAction) {
     allowedRoles = ["admin", "sales_member"];
   } else if (isPaymentAction) {
     allowedRoles = ["admin", "accountant"];
   } else if (isFineAction) {
     allowedRoles = ["admin", "sales_member", "accountant"];
+  } else if (isBehavioralAction) {
+    if (req.method === "DELETE") {
+      allowedRoles = ["admin", "sales_member"];
+    } else {
+      allowedRoles = ["admin", "sales_member", "hostel_incharge"];
+    }
   }
 
   if (!req.user || !allowedRoles.includes(req.user.role)) {
@@ -1251,5 +1263,65 @@ router.post("/create-student", async (req, res, next) => {
     next(err);
   }
 });
+
+// ── Behavioral Compliance Issues ─────────────────────────────────────────────
+
+router.post(
+  "/users/:userId/behavioral-issues",
+  validate(Joi.object({
+    category: Joi.string().valid("noise", "property_damage", "substance", "attendance", "misconduct", "curfew_violation", "other").default("other"),
+    description: Joi.string().min(3).max(1000).required(),
+    severity: Joi.string().valid("minor", "moderate", "severe").default("minor"),
+    date: Joi.date().iso().optional(),
+  })),
+  async (req, res, next) => {
+    try {
+      const result = await adminService.addBehavioralIssue(
+        req.params.userId,
+        req.validatedBody,
+        req.user.basicInfo.userId
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.put(
+  "/users/:userId/behavioral-issues/:issueId/resolve",
+  validate(Joi.object({
+    resolutionNotes: Joi.string().max(1000).allow("", null).default(""),
+  })),
+  async (req, res, next) => {
+    try {
+      const result = await adminService.resolveBehavioralIssue(
+        req.params.userId,
+        req.params.issueId,
+        req.validatedBody.resolutionNotes,
+        req.user.basicInfo.userId
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.delete(
+  "/users/:userId/behavioral-issues/:issueId",
+  async (req, res, next) => {
+    try {
+      const result = await adminService.deleteBehavioralIssue(
+        req.params.userId,
+        req.params.issueId,
+        req.user.basicInfo.userId
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 module.exports = router;

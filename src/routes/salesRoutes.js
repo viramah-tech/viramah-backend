@@ -505,6 +505,7 @@ router.put("/assign-room/:userId", async (req, res, next) => {
     // Allocate new room and bed
     user.roomDetails.roomRef = room._id;
     user.roomDetails.roomNumber = room.roomNumber;
+    user.roomDetails.roomType = room.roomType;
     user.roomDetails.bedNumber = targetBed;
     user.roomDetails.status = "assigned";
     user.roomDetails.allocationDate = new Date();

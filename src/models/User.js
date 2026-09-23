@@ -348,6 +348,32 @@ const userSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    behavioralIssues: {
+      type: [
+        {
+          issueId: { type: String, required: true },
+          category: {
+            type: String,
+            enum: ["noise", "property_damage", "substance", "attendance", "misconduct", "curfew_violation", "other"],
+            default: "other",
+          },
+          description: { type: String, required: true },
+          severity: {
+            type: String,
+            enum: ["minor", "moderate", "severe"],
+            default: "minor",
+          },
+          date: { type: Date, default: Date.now },
+          reportedBy: { type: String },
+          isResolved: { type: Boolean, default: false },
+          resolvedBy: { type: String },
+          resolvedAt: { type: Date },
+          resolutionNotes: { type: String },
+          createdAt: { type: Date, default: Date.now },
+        }
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );

@@ -26,20 +26,26 @@ const reuploadDocuments = async (user, files) => {
   let updated = false;
 
   if (files.idFront?.[0]) {
-    dbUser.userIdProof.frontImage = await uploadToS3(files.idFront[0], `documents/${dbUser.basicInfo.userId}/id`);
+    if (!dbUser.userIdProof) dbUser.userIdProof = {};
+    dbUser.userIdProof.frontImage = await uploadToS3(files.idFront[0], `documents/${dbUser.basicInfo?.userId || dbUser._id}/id`);
     updated = true;
   }
   if (files.idBack?.[0]) {
-    dbUser.userIdProof.backImage = await uploadToS3(files.idBack[0], `documents/${dbUser.basicInfo.userId}/id`);
+    if (!dbUser.userIdProof) dbUser.userIdProof = {};
+    dbUser.userIdProof.backImage = await uploadToS3(files.idBack[0], `documents/${dbUser.basicInfo?.userId || dbUser._id}/id`);
     updated = true;
   }
 
   if (files.guardianIdFront?.[0]) {
-    dbUser.guardianDetails.idProof.frontImage = await uploadToS3(files.guardianIdFront[0], `documents/${dbUser.basicInfo.userId}/guardian-id`);
+    if (!dbUser.guardianDetails) dbUser.guardianDetails = {};
+    if (!dbUser.guardianDetails.idProof) dbUser.guardianDetails.idProof = {};
+    dbUser.guardianDetails.idProof.frontImage = await uploadToS3(files.guardianIdFront[0], `documents/${dbUser.basicInfo?.userId || dbUser._id}/guardian-id`);
     updated = true;
   }
   if (files.guardianIdBack?.[0]) {
-    dbUser.guardianDetails.idProof.backImage = await uploadToS3(files.guardianIdBack[0], `documents/${dbUser.basicInfo.userId}/guardian-id`);
+    if (!dbUser.guardianDetails) dbUser.guardianDetails = {};
+    if (!dbUser.guardianDetails.idProof) dbUser.guardianDetails.idProof = {};
+    dbUser.guardianDetails.idProof.backImage = await uploadToS3(files.guardianIdBack[0], `documents/${dbUser.basicInfo?.userId || dbUser._id}/guardian-id`);
     updated = true;
   }
 
