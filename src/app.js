@@ -11,13 +11,35 @@ app.set("trust proxy", 1);
 app.use(helmet());
 
 const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000").split(",").map(o => o.trim());
+
+// Allow localhost, LAN IPs (for mobile testing), and amplifyapp.com / viramahstay.com subdomains
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+
+  // In development or local testing, allow any localhost, 127.0.0.1, or local network IP on any port
+  if (process.env.NODE_ENV !== "production") {
+    if (/^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(origin)) {
+      return true;
+    }
+  }
+
+  // Allow all amplifyapp.com and viramahstay.com subdomains
+  if (/^https:\/\/([a-zA-Z0-9-]+\.)?amplifyapp\.com$/.test(origin) ||
+      /^https:\/\/([a-zA-Z0-9-]+\.)?viramahstay\.com$/.test(origin)) {
+    return true;
+  }
+
+  return false;
+};
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (isOriginAllowed(origin)) {
         callback(null, true);
       } else {
-        callback(new Error("CORS policy violation"));
+        callback(new Error(`CORS policy violation for origin: ${origin}`));
       }
     },
     credentials: true,
@@ -68,6 +90,30 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(express.text({ type: "text/plain", limit: "2mb" }));
 const { getResolvedMongoUri } = require("./config/db");
 app.use(createSessionMiddleware(getResolvedMongoUri()));
+
+// Support Bearer Token / Header-based Session ID for mobile browsers where third-party cookies are blocked (ITP / Privacy Sandbox)
+app.use(async (req, res, next) => {
+  if (!req.session?.userId) {
+    const authHeader = req.headers.authorization;
+    const token = (authHeader && authHeader.startsWith("Bearer ") ? authHeader.substring(7) : null) || req.headers["x-session-id"];
+    if (token && req.sessionStore) {
+      try {
+        await new Promise((resolve) => {
+          req.sessionStore.get(token, (err, sessionData) => {
+            if (!err && sessionData && sessionData.userId) {
+              req.session = Object.assign(req.session || {}, sessionData);
+              req.sessionID = token;
+            }
+            resolve();
+          });
+        });
+      } catch (err) {
+        console.error("[SESSION_TOKEN_RESTORE_ERROR]", err);
+      }
+    }
+  }
+  next();
+});
 
 // Debug request/response logger — placed AFTER session middleware so req.session is populated
 app.use((req, res, next) => {

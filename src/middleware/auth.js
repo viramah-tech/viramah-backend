@@ -3,6 +3,27 @@ const User = require("../models/User");
 
 const auth = async (req, res, next) => {
   try {
+    // If cookie was stripped by mobile browser, restore session from Bearer token or x-session-id header
+    if (!req.session?.userId) {
+      const authHeader = req.headers.authorization;
+      const token = (authHeader && authHeader.startsWith("Bearer ") ? authHeader.substring(7) : null) || req.headers["x-session-id"];
+      if (token && req.sessionStore) {
+        try {
+          await new Promise((resolve) => {
+            req.sessionStore.get(token, (err, sessionData) => {
+              if (!err && sessionData && sessionData.userId) {
+                req.session = Object.assign(req.session || {}, sessionData);
+                req.sessionID = token;
+              }
+              resolve();
+            });
+          });
+        } catch (sessionErr) {
+          console.error("[AUTH_TOKEN_RESTORE_ERROR]", sessionErr);
+        }
+      }
+    }
+
     if (!req.session || !req.session.userId) {
       throw new AuthError();
     }

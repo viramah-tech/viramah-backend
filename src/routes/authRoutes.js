@@ -29,7 +29,7 @@ router.post("/register", validate(registerSchema), async (req, res, next) => {
     // Explicitly save session before sending response
     req.session.save((err) => {
       if (err) return next(err);
-      res.status(201).json({ success: true, data: { user } });
+      res.status(201).json({ success: true, data: { user, token: req.sessionID } });
     });
   } catch (err) {
     next(err);
@@ -44,7 +44,7 @@ router.post("/login", validate(loginSchema), async (req, res, next) => {
     // Explicitly save session before sending response
     req.session.save((err) => {
       if (err) return next(err);
-      res.json({ success: true, data: { user } });
+      res.json({ success: true, data: { user, token: req.sessionID } });
     });
   } catch (err) {
     next(err);
@@ -64,7 +64,7 @@ router.post("/logout", auth, async (req, res, next) => {
 router.get("/me", auth, async (req, res, next) => {
   try {
     const user = await authService.getMe(req.session.userId);
-    res.json({ success: true, data: { user } });
+    res.json({ success: true, data: { user, token: req.sessionID } });
   } catch (err) {
     next(err);
   }
