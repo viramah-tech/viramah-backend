@@ -27,6 +27,7 @@ const basicInfoSchema = new Schema(
     dateOfBirth: Date,
     address: String, // Store as plain string for flexibility
     salesAgent: { type: String, default: "" }, // Track who made the account
+    biometricCardNo: { type: String, default: null, sparse: true, index: true }, // RFID Card / Punch ID on biometric machine
   },
   { _id: false }
 );

@@ -59,11 +59,16 @@ router.use((req, res, next) => {
 
   // Allow admin, sales, and hostel_incharge to manage behavioral compliance issues
   const isBehavioralAction = req.path.includes("/behavioral-issues");
+
+  // Allow sales and admin to verify or reject user documents
+  const isDocumentAction =
+    req.method === "PUT" &&
+    (req.path.endsWith("/verify-documents") || req.path.endsWith("/reject-documents"));
   
   let allowedRoles = ["admin"];
   if (isReadOnlyRoute) {
     allowedRoles = ["admin", "sales_member", "accountant", "hostel_incharge"];
-  } else if (isSalesRoomAction || isSalesNoteAction || isCancellationAction || isUserDetailsAction) {
+  } else if (isSalesRoomAction || isSalesNoteAction || isCancellationAction || isUserDetailsAction || isDocumentAction) {
     allowedRoles = ["admin", "sales_member"];
   } else if (isPaymentAction) {
     allowedRoles = ["admin", "accountant"];
@@ -198,7 +203,8 @@ router.put(
 
 router.put("/users/:userId/verify-documents", async (req, res, next) => {
   try {
-    const result = await adminService.verifyUserDocuments(req.params.userId, req.user.basicInfo.userId);
+    const adminIdentifier = req.user?.basicInfo?.userId || req.user?.email || req.user?._id?.toString() || "staff";
+    const result = await adminService.verifyUserDocuments(req.params.userId, adminIdentifier);
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);
@@ -210,9 +216,10 @@ router.put(
   validate(Joi.object({ reason: Joi.string().min(3).max(500).required() })),
   async (req, res, next) => {
     try {
+      const adminIdentifier = req.user?.basicInfo?.userId || req.user?.email || req.user?._id?.toString() || "staff";
       const result = await adminService.rejectUserDocuments(
         req.params.userId,
-        req.user.basicInfo.userId,
+        adminIdentifier,
         req.validatedBody.reason
       );
       res.json({ success: true, data: result });

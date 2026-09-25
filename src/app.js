@@ -161,6 +161,9 @@ app.use("/api/transport", transportRoutes);
 const maintenanceRoutes = require("./routes/maintenanceRoutes");
 app.use("/api/maintenance", maintenanceRoutes);
 
+const attendanceRoutes = require("./routes/attendanceRoutes");
+app.use("/api/admin/attendance", attendanceRoutes);
+
 // 404
 app.use((req, res, next) => {
   res.status(404).json({

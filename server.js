@@ -23,6 +23,10 @@ const start = async () => {
   const { startFineScheduler } = require("./src/utils/fineScheduler");
   startFineScheduler();
 
+  // Start biometric attendance synchronization worker
+  const { startAttendanceSyncWorker } = require("./src/utils/attendanceWorker");
+  startAttendanceSyncWorker();
+
   const app = require("./src/app");
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);

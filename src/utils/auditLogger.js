@@ -17,10 +17,20 @@ const logAudit = async (eventType, data) => {
     };
 
     if (data.adminId && data.adminId !== "system") {
-      const adminUser = await User.findOne({ "basicInfo.userId": data.adminId });
+      let adminUser = await User.findOne({ "basicInfo.userId": data.adminId });
+      if (!adminUser) {
+        const SalesAgent = require("../models/SalesAgent");
+        adminUser = await SalesAgent.findOne({ "basicInfo.userId": data.adminId });
+      }
+      if (!adminUser) {
+        adminUser = await User.findOne({ "basicInfo.email": data.adminId });
+      }
       if (adminUser) {
         adminInfo.fullName = adminUser.basicInfo?.fullName || adminUser.basicInfo?.email || data.adminId;
         adminInfo.role = adminUser.role;
+      } else {
+        adminInfo.fullName = data.adminId;
+        adminInfo.role = "sales_member";
       }
     }
 
