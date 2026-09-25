@@ -19,6 +19,9 @@ const loginSchema = Joi.object({
     .try(Joi.string().email(), Joi.string().pattern(/^[0-9+\- ]{7,15}$/))
     .required(),
   password: Joi.string().required(),
+  role: Joi.string()
+    .valid("admin", "sales_member", "accountant", "hostel_incharge", "user")
+    .optional(),
 });
 
 router.post("/register", validate(registerSchema), async (req, res, next) => {

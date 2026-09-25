@@ -1367,4 +1367,44 @@ router.delete(
   }
 );
 
+// ----------------------------------------------------
+// System & Staff Settings (Admin Only)
+// ----------------------------------------------------
+const settingsService = require("../services/settingsService");
+
+router.get("/settings", async (req, res, next) => {
+  try {
+    const settings = await settingsService.getSystemSettings();
+    res.json({ success: true, data: settings });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/settings", async (req, res, next) => {
+  try {
+    const settings = await settingsService.updateSystemSettings(req.body);
+    const adminId = req.user?.basicInfo?.userId || "ADMIN";
+    logAdminAction("UPDATE_SYSTEM_SETTINGS", adminId, null, {
+      updatedKeys: Object.keys(req.body),
+    });
+    res.json({ success: true, data: settings });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/settings/warden", async (req, res, next) => {
+  try {
+    const warden = await settingsService.updateWardenCredentials(req.body);
+    const adminId = req.user?.basicInfo?.userId || "ADMIN";
+    logAdminAction("UPDATE_WARDEN_CREDENTIALS", adminId, null, {
+      wardenEmail: warden.email,
+    });
+    res.json({ success: true, data: warden });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

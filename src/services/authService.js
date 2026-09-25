@@ -81,16 +81,90 @@ const register = async ({ name, email, phone, password, salesAgent }) => {
   return sanitize(user);
 };
 
-const login = async ({ email, phone, password }) => {
+const SystemSettings = require("../models/SystemSettings");
+
+const getSystemSettings = async () => {
+  try {
+    let settings = await SystemSettings.findOne();
+    if (!settings) {
+      settings = await SystemSettings.create({
+        warden: {
+          email: (process.env.HOSTEL_INCHARGE_EMAIL || "admin@viramah.com").toLowerCase().trim(),
+          password: process.env.HOSTEL_INCHARGE_PASSWORD || "admin123",
+          fullName: "Viramah Hostel Incharge",
+          phone: "9999999999",
+          enabled: true,
+        },
+        accountant: {
+          email: (process.env.ACCOUNTANT_EMAIL || "accountant@viramah.com").toLowerCase().trim(),
+          password: process.env.ACCOUNTANT_PASSWORD || "accountant123",
+          fullName: "Viramah Head Accountant",
+          enabled: true,
+        },
+        operations: {
+          curfewTime: "21:00",
+          biometricSyncIntervalSec: 30,
+          autoApplyDailyFines: true,
+          salesCanVerifyDocuments: true,
+        },
+      });
+    }
+    return settings;
+  } catch (err) {
+    return {
+      warden: {
+        email: (process.env.HOSTEL_INCHARGE_EMAIL || "admin@viramah.com").toLowerCase().trim(),
+        password: process.env.HOSTEL_INCHARGE_PASSWORD || "admin123",
+        fullName: "Viramah Hostel Incharge",
+        phone: "9999999999",
+        enabled: true,
+      },
+      accountant: {
+        email: (process.env.ACCOUNTANT_EMAIL || "accountant@viramah.com").toLowerCase().trim(),
+        password: process.env.ACCOUNTANT_PASSWORD || "accountant123",
+        fullName: "Viramah Head Accountant",
+        enabled: true,
+      },
+      operations: {
+        curfewTime: "21:00",
+        biometricSyncIntervalSec: 30,
+        autoApplyDailyFines: true,
+        salesCanVerifyDocuments: true,
+      },
+    };
+  }
+};
+
+const login = async ({ email, phone, password, role: requestedRole }) => {
   const identifier = normalizeLoginIdentifier(email || phone);
   const normalizedEmail = identifier.toLowerCase();
+  const settings = await getSystemSettings();
 
-  // Admin environment bypass
-  if (
-    process.env.ADMIN_EMAIL &&
-    normalizedEmail === process.env.ADMIN_EMAIL.toLowerCase().trim() &&
-    password === process.env.ADMIN_PASSWORD
-  ) {
+  const wardenEmail = (settings.warden?.email || process.env.HOSTEL_INCHARGE_EMAIL || "admin@viramah.com").toLowerCase().trim();
+  const wardenPassword = settings.warden?.password || process.env.HOSTEL_INCHARGE_PASSWORD || "admin123";
+  const wardenEnabled = settings.warden?.enabled !== false;
+
+  const adminEmail = (process.env.ADMIN_EMAIL || "admin@viramah.com").toLowerCase().trim();
+  const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
+
+  // 1. If user specifically selected Incharge tab
+  if (requestedRole === "hostel_incharge" && wardenEnabled) {
+    if (normalizedEmail === wardenEmail && password === wardenPassword) {
+      return {
+        basicInfo: {
+          userId: "HOSTEL_INCHARGE_SYSTEM",
+          fullName: settings.warden?.fullName || "Viramah Hostel Incharge",
+          email: normalizedEmail,
+        },
+        role: "hostel_incharge",
+        accountStatus: "active",
+        onboarding: { currentStep: "completed" },
+      };
+    }
+  }
+
+  // 2. Admin environment bypass
+  if (normalizedEmail === adminEmail && password === adminPassword) {
     return {
       basicInfo: {
         userId: "ADMIN",
@@ -103,7 +177,7 @@ const login = async ({ email, phone, password }) => {
     };
   }
 
-  // Accountant environment bypass
+  // 3. Accountant environment bypass
   if (process.env.ACCOUNTANT_EMAIL && normalizedEmail === process.env.ACCOUNTANT_EMAIL.toLowerCase().trim()) {
     if (password === process.env.ACCOUNTANT_PASSWORD) {
       return {
@@ -121,19 +195,13 @@ const login = async ({ email, phone, password }) => {
     }
   }
 
-  // Hostel Incharge environment bypass
-  const inchargeEmail = (
-    process.env.HOSTEL_INCHARGE_EMAIL || (process.env.NODE_ENV !== "production" ? "incharge@viramah.com" : "")
-  ).toLowerCase().trim();
-  const inchargePassword =
-    process.env.HOSTEL_INCHARGE_PASSWORD || (process.env.NODE_ENV !== "production" ? "incharge123" : "");
-
-  if (inchargeEmail && normalizedEmail === inchargeEmail) {
-    if (inchargePassword && password === inchargePassword) {
+  // 4. General Hostel Incharge bypass (when requestedRole is not hostel_incharge, e.g. direct login)
+  if (wardenEnabled && normalizedEmail === wardenEmail) {
+    if (password === wardenPassword) {
       return {
         basicInfo: {
           userId: "HOSTEL_INCHARGE_SYSTEM",
-          fullName: "Viramah Hostel Incharge",
+          fullName: settings.warden?.fullName || "Viramah Hostel Incharge",
           email: normalizedEmail,
         },
         role: "hostel_incharge",
@@ -214,11 +282,12 @@ const getMe = async (userId) => {
 
   // Hostel Incharge environment bypass
   if (userId === "HOSTEL_INCHARGE_SYSTEM") {
+    const settings = await getSystemSettings();
     return {
       basicInfo: {
         userId: "HOSTEL_INCHARGE_SYSTEM",
-        fullName: "Viramah Hostel Incharge",
-        email: process.env.HOSTEL_INCHARGE_EMAIL || "incharge@viramah.com",
+        fullName: settings.warden?.fullName || "Viramah Hostel Incharge",
+        email: settings.warden?.email || process.env.HOSTEL_INCHARGE_EMAIL || "admin@viramah.com",
       },
       role: "hostel_incharge",
       accountStatus: "active",
