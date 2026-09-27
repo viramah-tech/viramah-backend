@@ -7,11 +7,17 @@ const { reapplyApprovedPayments, recalculateGrandTotal } = require("../utils/wat
 const { reconcileAccountState } = require("../utils/accountState");
 const { logAdminAction } = require("../utils/auditLogger");
 
+const STAFF_USER_IDS = ["ADMIN", "ACCOUNTANT_1", "INCHARGE_1", "MANAGER_SYSTEM", "ACCOUNTANT_SYSTEM", "HOSTEL_INCHARGE_SYSTEM"];
+const STAFF_ID_REGEX = /^(admin|accountant|incharge|manager)/i;
+
 /**
  * Fast search for students eligible as transfer source or target.
  */
 const getEligibleStudents = async (query = "") => {
-  const filter = { role: "user" };
+  const filter = {
+    role: { $in: ["user", "tenant"] },
+    "basicInfo.userId": { $nin: STAFF_USER_IDS, $not: STAFF_ID_REGEX }
+  };
 
   if (query && query.trim()) {
     const q = query.trim();

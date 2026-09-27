@@ -22,10 +22,32 @@ const CATEGORY_KEYS = [
   "fines",
 ];
 
-const getUsers = async ({ status, step, search, page = 1, limit = 20 }) => {
+const STAFF_ROLES = ["admin", "manager", "accountant", "hostel_incharge", "sales_member"];
+const STAFF_USER_IDS = [
+  "ADMIN",
+  "ACCOUNTANT_1",
+  "INCHARGE_1",
+  "MANAGER_SYSTEM",
+  "ACCOUNTANT_SYSTEM",
+  "HOSTEL_INCHARGE_SYSTEM",
+];
+const STAFF_ID_REGEX = /^(admin|accountant|incharge|manager)/i;
+
+const getUsers = async ({ status, step, search, role, page = 1, limit = 20 }) => {
   const query = {};
   if (status) query.accountStatus = status;
   if (step) query["onboarding.currentStep"] = step;
+
+  if (role) {
+    query.role = role;
+    if (!STAFF_ROLES.includes(role)) {
+      query["basicInfo.userId"] = { $nin: STAFF_USER_IDS, $not: STAFF_ID_REGEX };
+    }
+  } else {
+    // By default, exclude all staff accounts from user/student listing
+    query.role = { $nin: STAFF_ROLES };
+    query["basicInfo.userId"] = { $nin: STAFF_USER_IDS, $not: STAFF_ID_REGEX };
+  }
 
   if (search && search.trim() !== "") {
     const escapedSearch = search.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
@@ -152,7 +174,13 @@ const updateRoomRentDiscounts = async (userId, fullPaymentDiscountPct, halfPayme
 };
 
 const getPayments = async (statusFilter) => {
-  const query = statusFilter ? { "paymentDetails.status": statusFilter } : { role: "user" };
+  const query = {
+    role: { $nin: STAFF_ROLES },
+    "basicInfo.userId": { $nin: STAFF_USER_IDS, $not: STAFF_ID_REGEX },
+  };
+  if (statusFilter) {
+    query["paymentDetails.status"] = statusFilter;
+  }
 
   const users = await User.find(query)
     .select(
@@ -449,15 +477,25 @@ const rejectPayment = async (userId, paymentId, adminUserId, reason) => {
 };
 
 const getDashboard = async () => {
+  const studentMatchQuery = {
+    role: { $in: ["user", "tenant"] },
+    "basicInfo.userId": { $nin: STAFF_USER_IDS, $not: STAFF_ID_REGEX },
+  };
+
   const [totalUsers, activeUsers, byStep, pendingPayments, revenueAgg, roomTypes] = await Promise.all([
-    User.countDocuments({ role: "user" }),
-    User.countDocuments({ role: "user", accountStatus: "active" }),
+    User.countDocuments(studentMatchQuery),
+    User.countDocuments({ ...studentMatchQuery, accountStatus: "active" }),
     User.aggregate([
-      { $match: { role: "user" } },
+      { $match: studentMatchQuery },
       { $group: { _id: "$onboarding.currentStep", count: { $sum: 1 } } },
     ]),
-    User.countDocuments({ "paymentDetails.status": "pending" }),
+    User.countDocuments({
+      "paymentDetails.status": "pending",
+      role: { $nin: STAFF_ROLES },
+      "basicInfo.userId": { $nin: STAFF_USER_IDS, $not: STAFF_ID_REGEX },
+    }),
     User.aggregate([
+      { $match: { role: { $nin: STAFF_ROLES }, "basicInfo.userId": { $nin: STAFF_USER_IDS, $not: STAFF_ID_REGEX } } },
       { $unwind: "$paymentDetails" },
       { $match: { "paymentDetails.status": "approved" } },
       { $group: { _id: null, total: { $sum: "$paymentDetails.amounts.totalAmount" } } },

@@ -378,7 +378,13 @@ router.delete("/visits/:id", async (req, res, next) => {
 router.get("/tenants", async (req, res, next) => {
   try {
     const tenants = await User.find(
-      { role: { $in: ["user", "tenant"] } },
+      {
+        role: { $in: ["user", "tenant"] },
+        "basicInfo.userId": {
+          $nin: ["ADMIN", "ACCOUNTANT_1", "INCHARGE_1", "MANAGER_SYSTEM", "ACCOUNTANT_SYSTEM", "HOSTEL_INCHARGE_SYSTEM"],
+          $not: /^(admin|accountant|incharge|manager)/i
+        }
+      },
       "basicInfo.userId basicInfo.fullName basicInfo.email basicInfo.phone basicInfo.residentId roomDetails accountStatus"
     ).populate("roomDetails.roomRef");
     res.json({ success: true, data: tenants });

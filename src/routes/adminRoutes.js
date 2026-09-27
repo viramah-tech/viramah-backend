@@ -175,8 +175,8 @@ router.post("/rooms", validate(roomSchema), async (req, res, next) => {
 
 router.get("/users", async (req, res, next) => {
   try {
-    const { status, step, search, page, limit } = req.query;
-    const result = await adminService.getUsers({ status, step, search, page, limit });
+    const { status, step, search, page, limit, role } = req.query;
+    const result = await adminService.getUsers({ status, step, search, page, limit, role });
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);
@@ -186,7 +186,8 @@ router.get("/users", async (req, res, next) => {
 // Must be before /users/:userId to avoid :userId capturing "export"
 router.get("/users/export", async (req, res, next) => {
   try {
-    const result = await adminService.getUsers({ page: 1, limit: 1000 });
+    const { status, step, search, role } = req.query;
+    const result = await adminService.getUsers({ status, step, search, role, page: 1, limit: 10000 });
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);
