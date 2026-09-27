@@ -6,9 +6,36 @@ const { logAdminAction } = require("../utils/auditLogger");
 
 const router = express.Router();
 
-// Strict Admin-Only Guard: ALL attendance operations are restricted to admin
+// Authentication required
 router.use(auth);
-router.use(roleGuard("admin"));
+
+/**
+ * GET /my-history
+ * Any authenticated user/student can view their own biometric punch ledger & status
+ */
+router.get("/my-history", async (req, res, next) => {
+  try {
+    const userId = req.user?.basicInfo?.userId;
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: { message: "User identity not found in session", code: "BAD_REQUEST" },
+      });
+    }
+    const { from, to } = req.query;
+    const history = await attendanceService.getStudentAttendanceHistory(
+      userId,
+      from,
+      to
+    );
+    res.json({ success: true, data: history });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin & Hostel Incharge Guard: Attendance console operations
+router.use(roleGuard("admin", "hostel_incharge"));
 
 /**
  * GET /api/admin/attendance/daily

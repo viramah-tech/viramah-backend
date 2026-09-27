@@ -17,8 +17,8 @@ router.use(auth);
 
 // Apply dynamic role verification (allowing sales_member/accountant to read users/rooms/payments and manage relevant items)
 router.use((req, res, next) => {
-  // Skip for /emails/* paths — emailRoutes has its own role guard
-  if (req.path.startsWith("/emails")) {
+  // Skip for /emails/* and /attendance/* paths — they have their own routers and role guards
+  if (req.path.startsWith("/emails") || req.path.startsWith("/attendance")) {
     return next();
   }
 

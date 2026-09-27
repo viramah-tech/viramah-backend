@@ -163,6 +163,7 @@ app.use("/api/maintenance", maintenanceRoutes);
 
 const attendanceRoutes = require("./routes/attendanceRoutes");
 app.use("/api/admin/attendance", attendanceRoutes);
+app.use("/api/attendance", attendanceRoutes);
 
 // 404
 app.use((req, res, next) => {
