@@ -11,7 +11,7 @@ const AuditLogSchema = new mongoose.Schema(
       type: String,
       required: true,
       index: true,
-      enum: ["PAYMENT", "DOCUMENT", "ROOM", "FINE", "PRICING", "SECURITY", "SYSTEM"],
+      enum: ["PAYMENT", "DOCUMENT", "ROOM", "FINE", "PRICING", "SECURITY", "SYSTEM", "ADMIN_ACTION"],
     },
     action: {
       type: String,
