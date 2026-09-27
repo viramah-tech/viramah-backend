@@ -65,20 +65,25 @@ router.use((req, res, next) => {
     req.method === "PUT" &&
     (req.path.endsWith("/verify-documents") || req.path.endsWith("/reject-documents"));
   
-  let allowedRoles = ["admin"];
+  // Student transfer / hostel exchange action (strictly restricted to manager, admin, accountant)
+  const isTransferAction = req.path.startsWith("/transfers");
+
+  let allowedRoles = ["admin", "manager"];
   if (isReadOnlyRoute) {
-    allowedRoles = ["admin", "sales_member", "accountant", "hostel_incharge"];
+    allowedRoles = ["admin", "manager", "sales_member", "accountant", "hostel_incharge"];
+  } else if (isTransferAction) {
+    allowedRoles = ["admin", "manager", "accountant"];
   } else if (isSalesRoomAction || isSalesNoteAction || isCancellationAction || isUserDetailsAction || isDocumentAction) {
-    allowedRoles = ["admin", "sales_member"];
+    allowedRoles = ["admin", "manager", "sales_member"];
   } else if (isPaymentAction) {
-    allowedRoles = ["admin", "accountant"];
+    allowedRoles = ["admin", "manager", "accountant"];
   } else if (isFineAction) {
-    allowedRoles = ["admin", "sales_member", "accountant"];
+    allowedRoles = ["admin", "manager", "sales_member", "accountant"];
   } else if (isBehavioralAction) {
     if (req.method === "DELETE") {
-      allowedRoles = ["admin", "sales_member"];
+      allowedRoles = ["admin", "manager", "sales_member"];
     } else {
-      allowedRoles = ["admin", "sales_member", "hostel_incharge"];
+      allowedRoles = ["admin", "manager", "sales_member", "hostel_incharge"];
     }
   }
 
@@ -1402,6 +1407,71 @@ router.put("/settings/warden", async (req, res, next) => {
       wardenEmail: warden.email,
     });
     res.json({ success: true, data: warden });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/settings/manager", async (req, res, next) => {
+  try {
+    const manager = await settingsService.updateManagerCredentials(req.body);
+    const adminId = req.user?.basicInfo?.userId || "ADMIN";
+    logAdminAction("UPDATE_MANAGER_CREDENTIALS", adminId, null, {
+      managerEmail: manager.email,
+    });
+    res.json({ success: true, data: manager });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ----------------------------------------------------
+// Student Balance Transfer / Hostel Exchange
+// Strictly accessible to: Admin, Manager, Accountant
+// ----------------------------------------------------
+const transferService = require("../services/transferService");
+
+const transferExecuteSchema = Joi.object({
+  fromStudentId: Joi.string().required(),
+  toStudentId: Joi.string().required(),
+  amount: Joi.number().positive().required(),
+  targetCategory: Joi.string().valid("room_rent", "security_deposit", "mess", "transport", "fine", "booking", "hostel_transfer").default("room_rent"),
+  reason: Joi.string().min(3).max(500).required(),
+  notes: Joi.string().allow("", null).default(""),
+  markFromStudentAsCancelled: Joi.boolean().default(false),
+});
+
+router.get("/transfers", async (req, res, next) => {
+  try {
+    const result = await transferService.listTransfers(req.query);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/transfers/eligible-students", async (req, res, next) => {
+  try {
+    const students = await transferService.getEligibleStudents(req.query.q || req.query.search || "");
+    res.json({ success: true, data: students });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/transfers", validate(transferExecuteSchema), async (req, res, next) => {
+  try {
+    const actor = {
+      userId: req.user.basicInfo?.userId || req.user.userId || "STAFF",
+      role: req.user.role,
+      fullName: req.user.basicInfo?.fullName || "Staff",
+    };
+    const result = await transferService.executeStudentTransfer(req.validatedBody, actor);
+    res.json({
+      success: true,
+      data: result,
+      message: "Student amount transferred successfully",
+    });
   } catch (err) {
     next(err);
   }

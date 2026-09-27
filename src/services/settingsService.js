@@ -20,6 +20,13 @@ const getSystemSettings = async () => {
         fullName: "Viramah Head Accountant",
         enabled: true,
       },
+      manager: {
+        email: (process.env.MANAGER_EMAIL || "manager@viramah.com").toLowerCase().trim(),
+        password: process.env.MANAGER_PASSWORD || "manager123",
+        fullName: "Viramah General Manager",
+        phone: "9876543210",
+        enabled: true,
+      },
       operations: {
         curfewTime: "21:00",
         biometricSyncIntervalSec: 30,
@@ -42,23 +49,31 @@ const updateSystemSettings = async (updateData) => {
 
   if (updateData.warden) {
     settings.warden = {
-      ...settings.warden.toObject(),
+      ...(settings.warden ? settings.warden.toObject() : {}),
       ...updateData.warden,
-      email: (updateData.warden.email || settings.warden.email).toLowerCase().trim(),
+      email: (updateData.warden.email || settings.warden?.email || "").toLowerCase().trim(),
     };
   }
 
   if (updateData.accountant) {
     settings.accountant = {
-      ...settings.accountant.toObject(),
+      ...(settings.accountant ? settings.accountant.toObject() : {}),
       ...updateData.accountant,
-      email: (updateData.accountant.email || settings.accountant.email).toLowerCase().trim(),
+      email: (updateData.accountant.email || settings.accountant?.email || "").toLowerCase().trim(),
+    };
+  }
+
+  if (updateData.manager) {
+    settings.manager = {
+      ...(settings.manager ? settings.manager.toObject() : {}),
+      ...updateData.manager,
+      email: (updateData.manager.email || settings.manager?.email || "").toLowerCase().trim(),
     };
   }
 
   if (updateData.operations) {
     settings.operations = {
-      ...settings.operations.toObject(),
+      ...(settings.operations ? settings.operations.toObject() : {}),
       ...updateData.operations,
     };
   }
@@ -82,8 +97,25 @@ const updateWardenCredentials = async ({ email, password, fullName, phone, enabl
   return settings.warden;
 };
 
+/**
+ * Update Manager credentials specifically
+ */
+const updateManagerCredentials = async ({ email, password, fullName, phone, enabled }) => {
+  let settings = await getSystemSettings();
+  if (!settings.manager) settings.manager = {};
+  if (email) settings.manager.email = email.toLowerCase().trim();
+  if (password) settings.manager.password = password;
+  if (fullName) settings.manager.fullName = fullName.trim();
+  if (phone) settings.manager.phone = phone.trim();
+  if (typeof enabled === "boolean") settings.manager.enabled = enabled;
+
+  await settings.save();
+  return settings.manager;
+};
+
 module.exports = {
   getSystemSettings,
   updateSystemSettings,
   updateWardenCredentials,
+  updateManagerCredentials,
 };

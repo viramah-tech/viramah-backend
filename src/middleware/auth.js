@@ -56,6 +56,20 @@ const auth = async (req, res, next) => {
       return next();
     }
 
+    if (req.session.userId === "MANAGER_SYSTEM") {
+      req.user = {
+        basicInfo: {
+          userId: "MANAGER_SYSTEM",
+          fullName: "Viramah General Manager",
+          email: process.env.MANAGER_EMAIL || "manager@viramah.com",
+        },
+        role: "manager",
+        accountStatus: "active",
+        onboarding: { currentStep: "completed" },
+      };
+      return next();
+    }
+
     if (req.session.userId === "HOSTEL_INCHARGE_SYSTEM") {
       req.user = {
         basicInfo: {

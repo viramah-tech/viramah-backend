@@ -46,6 +46,30 @@ const systemSettingsSchema = new mongoose.Schema(
         default: true,
       },
     },
+    manager: {
+      email: {
+        type: String,
+        default: "manager@viramah.com",
+        trim: true,
+        lowercase: true,
+      },
+      password: {
+        type: String,
+        default: "manager123",
+      },
+      fullName: {
+        type: String,
+        default: "Viramah General Manager",
+      },
+      phone: {
+        type: String,
+        default: "9876543210",
+      },
+      enabled: {
+        type: Boolean,
+        default: true,
+      },
+    },
     operations: {
       curfewTime: {
         type: String,

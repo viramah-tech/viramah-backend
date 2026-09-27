@@ -162,12 +162,12 @@ const paymentRecordSchema = new Schema(
     },
     category: {
       type: String,
-      enum: ["booking", "security_deposit", "room_rent", "mess", "transport", "fine", null],
+      enum: ["booking", "security_deposit", "room_rent", "mess", "transport", "fine", "hostel_transfer", null],
       default: null,
     },
     method: {
       type: String,
-      enum: ["upi", "bank_transfer", "cash"],
+      enum: ["upi", "bank_transfer", "cash", "hostel_transfer"],
       required: true,
     },
     transactionId: { type: String, required: true },
@@ -296,7 +296,7 @@ const cancellationSchema = new Schema(
     cancellationReason: String,
     refundAmount: { type: Number, default: 0 },
     refundStatus: { type: String, enum: ["none", "pending", "processed"], default: "none" },
-    refundMode: { type: String, enum: ["upi", "bank_transfer", "cash", "cheque", "other", "none"], default: "none" },
+    refundMode: { type: String, enum: ["upi", "bank_transfer", "cash", "cheque", "hostel_transfer", "other", "none"], default: "none" },
     refundTransactionId: String,
     refundDate: Date,
     refundNotes: String,
@@ -321,7 +321,7 @@ const userSchema = new Schema(
     compliance: { type: complianceSchema, default: () => ({}) },
     auth: { type: authSchema, required: true },
     cancellation: { type: cancellationSchema, default: () => ({}) },
-    role: { type: String, enum: ["user", "admin", "sales_member", "tenant", "accountant", "hostel_incharge"], default: "user", index: true },
+    role: { type: String, enum: ["user", "admin", "manager", "sales_member", "tenant", "accountant", "hostel_incharge"], default: "user", index: true },
     accountStatus: {
       type: String,
       enum: ["pending", "active", "suspended", "blocked", "cancelled"],

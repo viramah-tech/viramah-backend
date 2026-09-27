@@ -101,6 +101,13 @@ const getSystemSettings = async () => {
           fullName: "Viramah Head Accountant",
           enabled: true,
         },
+        manager: {
+          email: (process.env.MANAGER_EMAIL || "manager@viramah.com").toLowerCase().trim(),
+          password: process.env.MANAGER_PASSWORD || "manager123",
+          fullName: "Viramah General Manager",
+          phone: "9876543210",
+          enabled: true,
+        },
         operations: {
           curfewTime: "21:00",
           biometricSyncIntervalSec: 30,
@@ -125,6 +132,13 @@ const getSystemSettings = async () => {
         fullName: "Viramah Head Accountant",
         enabled: true,
       },
+      manager: {
+        email: (process.env.MANAGER_EMAIL || "manager@viramah.com").toLowerCase().trim(),
+        password: process.env.MANAGER_PASSWORD || "manager123",
+        fullName: "Viramah General Manager",
+        phone: "9876543210",
+        enabled: true,
+      },
       operations: {
         curfewTime: "21:00",
         biometricSyncIntervalSec: 30,
@@ -146,6 +160,29 @@ const login = async ({ email, phone, password, role: requestedRole }) => {
 
   const adminEmail = (process.env.ADMIN_EMAIL || "admin@viramah.com").toLowerCase().trim();
   const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
+
+  const managerEmail = (settings.manager?.email || process.env.MANAGER_EMAIL || "manager@viramah.com").toLowerCase().trim();
+  const managerPassword = settings.manager?.password || process.env.MANAGER_PASSWORD || "manager123";
+  const managerEnabled = settings.manager?.enabled !== false;
+
+  // Manager login check
+  if (managerEnabled && normalizedEmail === managerEmail) {
+    if (password === managerPassword) {
+      return {
+        basicInfo: {
+          userId: "MANAGER_SYSTEM",
+          fullName: settings.manager?.fullName || "Viramah General Manager",
+          email: normalizedEmail,
+          phone: settings.manager?.phone || "9876543210",
+        },
+        role: "manager",
+        accountStatus: "active",
+        onboarding: { currentStep: "completed" },
+      };
+    } else {
+      throw new AuthError("Invalid email or password");
+    }
+  }
 
   // 1. If user specifically selected Incharge tab
   if (requestedRole === "hostel_incharge" && wardenEnabled) {
@@ -275,6 +312,22 @@ const getMe = async (userId) => {
         email: process.env.ACCOUNTANT_EMAIL || "accountant@viramah.com",
       },
       role: "accountant",
+      accountStatus: "active",
+      onboarding: { currentStep: "completed" },
+    };
+  }
+
+  // Manager environment bypass
+  if (userId === "MANAGER_SYSTEM") {
+    const settings = await getSystemSettings();
+    return {
+      basicInfo: {
+        userId: "MANAGER_SYSTEM",
+        fullName: settings.manager?.fullName || "Viramah General Manager",
+        email: settings.manager?.email || process.env.MANAGER_EMAIL || "manager@viramah.com",
+        phone: settings.manager?.phone || "9876543210",
+      },
+      role: "manager",
       accountStatus: "active",
       onboarding: { currentStep: "completed" },
     };

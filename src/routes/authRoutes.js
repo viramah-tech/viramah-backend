@@ -20,7 +20,7 @@ const loginSchema = Joi.object({
     .required(),
   password: Joi.string().required(),
   role: Joi.string()
-    .valid("admin", "sales_member", "accountant", "hostel_incharge", "user")
+    .valid("admin", "manager", "sales_member", "accountant", "hostel_incharge", "user")
     .optional(),
 });
 
