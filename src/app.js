@@ -183,11 +183,24 @@ app.use((err, req, res, next) => {
     });
   }
 
-  // Multer / file upload stream errors
+  // Multer / file upload stream errors — give specific, user-friendly messages
   if (err && (err.name === "MulterError" || err.message?.includes("Unexpected end of form"))) {
+    let userMessage = "File upload failed. Please try again.";
+    if (err.code === "LIMIT_FILE_SIZE") {
+      userMessage = "File is too large. Maximum allowed size is 10 MB per file. Please compress or reduce the file size.";
+    } else if (err.code === "LIMIT_FILE_COUNT") {
+      userMessage = "Too many files uploaded at once. Please upload fewer files.";
+    } else if (err.code === "LIMIT_UNEXPECTED_FILE") {
+      userMessage = `Unexpected file field "${err.field || "unknown"}". Please check the upload form.`;
+    } else if (err.message?.includes("Only JPEG")) {
+      // File type rejection from our fileFilter
+      userMessage = err.message;
+    } else if (err.message?.includes("Unexpected end of form")) {
+      userMessage = "Upload was interrupted. Please check your connection and try again.";
+    }
     return res.status(400).json({
       success: false,
-      error: { message: err.message || "File upload stream error", code: "UPLOAD_ERROR" },
+      error: { message: userMessage, code: "UPLOAD_ERROR" },
     });
   }
 
